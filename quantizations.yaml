@@ -1,0 +1,137 @@
+quantizations:
+  - IQ2_S
+  - IQ2_M
+  - IQ3_M
+  - IQ4_NL
+  - IQ4_XS
+  - Q3_K_L
+  - Q3_K_M
+  - Q4_K_M
+  - Q4_K_S
+  - Q5_K_M
+  - Q5_K_S
+  - Q6_K
+  - Q8_0
+
+allowed_quantization_types:
+  - name: Q4_0
+    size: 4.34G
+    ppl: +0.4685
+    details: Llama-3-8B
+  - name: Q4_1
+    size: 4.78G
+    ppl: +0.4511
+    details: Llama-3-8B
+  - name: Q5_0
+    size: 5.21G
+    ppl: +0.1316
+    details: Llama-3-8B
+  - name: Q5_1
+    size: 5.65G
+    ppl: +0.1062
+    details: Llama-3-8B
+  - name: IQ2_XXS
+    size: "2.06 bpw"
+    type: quantization
+  - name: IQ2_XS
+    size: "2.31 bpw"
+    type: quantization
+  - name: IQ2_S
+    size: "2.5 bpw"
+    type: quantization
+  - name: IQ2_M
+    size: "2.7 bpw"
+    type: quantization
+  - name: IQ1_S
+    size: "1.56 bpw"
+    type: quantization
+  - name: IQ1_M
+    size: "1.75 bpw"
+    type: quantization
+  - name: TQ1_0
+    size: "1.69 bpw"
+    type: ternarization
+  - name: TQ2_0
+    size: "2.06 bpw"
+    type: ternarization
+  - name: Q2_K
+    size: 2.96G
+    ppl: +3.5199
+    details: Llama-3-8B
+  - name: Q2_K_S
+    size: 2.96G
+    ppl: +3.1836
+    details: Llama-3-8B
+  - name: IQ3_XXS
+    size: "3.06 bpw"
+    type: quantization
+  - name: IQ3_S
+    size: "3.44 bpw"
+    type: quantization
+  - name: IQ3_M
+    size: "3.66 bpw"
+    type: quantization mix
+  - name: Q3_K
+    alias: Q3_K_M
+  - name: IQ3_XS
+    size: "3.3 bpw"
+    type: quantization
+  - name: Q3_K_S
+    size: 3.41G
+    ppl: +1.6321
+    details: Llama-3-8B
+  - name: Q3_K_M
+    size: 3.74G
+    ppl: +0.6569
+    details: Llama-3-8B
+  - name: Q3_K_L
+    size: 4.03G
+    ppl: +0.5562
+    details: Llama-3-8B
+  - name: IQ4_NL
+    size: "4.50 bpw"
+    type: non-linear quantization
+  - name: IQ4_XS
+    size: "4.25 bpw"
+    type: non-linear quantization
+  - name: Q4_K
+    alias: Q4_K_M
+  - name: Q4_K_S
+    size: 4.37G
+    ppl: +0.2689
+    details: Llama-3-8B
+  - name: Q4_K_M
+    size: 4.58G
+    ppl: +0.1754
+    details: Llama-3-8B
+  - name: Q5_K
+    alias: Q5_K_M
+  - name: Q5_K_S
+    size: 5.21G
+    ppl: +0.1049
+    details: Llama-3-8B
+  - name: Q5_K_M
+    size: 5.33G
+    ppl: +0.0569
+    details: Llama-3-8B
+  - name: Q6_K
+    size: 6.14G
+    ppl: +0.0217
+    details: Llama-3-8B
+  - name: Q8_0
+    size: 7.96G
+    ppl: +0.0026
+    details: Llama-3-8B
+  - name: F16
+    size: 14.00G
+    ppl: +0.0020
+    details: Mistral-7B
+  - name: BF16
+    size: 14.00G
+    ppl: -0.0050
+    details: Mistral-7B
+  - name: F32
+    size: 26.00G
+    details: 7B
+  - name: COPY
+    description: Only copy tensors, no quantizing
