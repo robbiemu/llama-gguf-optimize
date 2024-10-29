@@ -9,25 +9,31 @@ import time
 # from version import __version__
 
 
-__version__ = "0.2.0"  
+__version__ = "0.3.0"  
 
 LOG_LEVEL = logging.INFO
 
-if LOG_LEVEL == logging.DEBUG:
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S'
-    )
-else:
-    logging.basicConfig(
-        level=LOG_LEVEL,
-        format='%(levelname)s - %(message)s'
-    )
-logger = logging.getLogger(__name__)
-logging.info(f"Server starting with generate_logits version {__version__}")
-
 TARGET_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+def configure_logger(external_logger=None):
+    """Configures a logger for generate_logits. Uses an external logger if provided."""
+    global logger  # Make logger accessible throughout the module
+    if external_logger:
+        logger = external_logger
+    else:
+        if LOG_LEVEL == logging.DEBUG:
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format='%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%H:%M:%S'
+            )
+        else:
+            logging.basicConfig(
+                level=LOG_LEVEL,
+                format='%(levelname)s - %(message)s'
+            )
+        logger = logging.getLogger(__name__)
 
 
 def prepare_llama_args(kwargs):
@@ -63,36 +69,34 @@ def prepare_llama_args(kwargs):
 
 
 def estimate_model_parameters(metadata):
-    try:
-        # Extract relevant metadata values
-        vocab_size = int(metadata.get("llama.vocab_size", 0))
-        embedding_length = int(metadata.get("llama.embedding_length", 0))
-        feed_forward_length = int(metadata.get("llama.feed_forward_length", 0))
-        num_layers = int(metadata.get("llama.block_count", 0))
+    # Extract relevant metadata values
+    vocab_size = metadata.get("llama.vocab_size")
+    embedding_length = metadata.get("llama.embedding_length")
+    feed_forward_length = metadata.get("llama.feed_forward_length")
+    num_layers = metadata.get("llama.block_count")
 
-        if vocab_size == 0 or embedding_length == 0 or feed_forward_length == 0 or num_layers == 0:
-            print("Missing metadata for parameter estimation.")
-            return None
-
-        # Embedding parameters
-        embedding_params = vocab_size * embedding_length
-
-        # Self-attention and feed-forward parameters (no need to include num_attention_heads separately)
-        layer_params_per_layer = 4 * embedding_length**2 + 4 * embedding_length * feed_forward_length
-
-        # Total parameters = embedding parameters + layer parameters across all layers
-        total_params = embedding_params + (num_layers * layer_params_per_layer)
-        logger.debug(f"Estimated number of paramters: {total_params}")
-        return total_params
-
-    except (ValueError, KeyError) as e:
-        print(f"Error estimating model parameters: {e}")
+    # Validate extracted values
+    if not all(isinstance(val, int) and val > 0 for val in [vocab_size, embedding_length, feed_forward_length, num_layers]):
+        logger.error("Missing or invalid metadata for parameter estimation.")
         return None
+
+    # Embedding parameters
+    embedding_params = vocab_size * embedding_length
+
+    # Self-attention and feed-forward parameters
+    layer_params_per_layer = 4 * embedding_length**2 + 4 * embedding_length * feed_forward_length
+
+    # Total parameters = embedding parameters + layer parameters across all layers
+    total_params = embedding_params + (num_layers * layer_params_per_layer)
+    logger.debug(f"Estimated number of parameters: {total_params}")
+
+    return total_params
 
 
 def estimate_model_precision(model_path):
     try:
-        with contextlib.redirect_stderr(open(os.devnull, 'w')), contextlib.redirect_stdout(open(os.devnull, 'w')):
+        with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
+
             model = llama_cpp.Llama(model_path)
 
         # Estimate number of parameters based on the architecture metadata
@@ -112,9 +116,11 @@ def estimate_model_precision(model_path):
 
     except FileNotFoundError:
         logger.error(f"GGUF file not found at path: {model_path}. Defaulting to 32.0 bits.")
+
         return 32
     except Exception as e:
         logger.error(f"An error occurred while processing the GGUF file: {e}. Defaulting to 32.0 bits.")
+
         return 32
     
 
@@ -135,35 +141,64 @@ def write_header(h5f, context_size, vocab_size):
     logger.debug(f"Header written with context size: {context_size} and vocab size: {vocab_size}")
 
 
-def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, precision):
-    """Creates and returns an HDF5 file and dataset for storing logits."""
+def create_processed_chunks_dataset(h5f, total_chunks):
+    """Creates the 'processed_chunks' dataset in the HDF5 file."""
+    processed_chunks_dset = h5f.create_dataset(
+        'processed_chunks',
+        shape=(total_chunks,),
+        dtype=bool,
+        maxshape=(None,),
+        chunks=True
+    )
+    # Initialize processed_chunks to False
+    processed_chunks_dset[...] = False
+
+    return processed_chunks_dset
+
+def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, precision, resume=False):
+    """Creates and returns an HDF5 file and datasets for storing logits and processed chunk flags."""
     global TARGET_CHUNK_SIZE_BYTES
 
-    logger.debug(f"Creating HDF5 dataset with vocab_size: {vocab_size}")
+    if resume and os.path.exists(output_file):
+        logger.debug(f"Resuming with existing HDF5 file: {output_file}")
 
-    vocab_size = int(vocab_size)  # Ensure vocab_size is an integer
-    dtype = 'float16' if precision <= 16 else 'float32'
-    BYTES_PER_FLOAT = 4 if dtype == 'float32' else 2
+        h5f = h5py.File(output_file, 'a')
+        dset = h5f['logits']
+        if 'processed_chunks' in h5f:
+            processed_chunks_dset = h5f['processed_chunks']
+        else:
+            logger.debug("Creating missing 'processed_chunks' dataset for resumable processing")
+            processed_chunks_dset = create_processed_chunks_dataset(h5f, total_chunks)
+    else:
+        logger.debug(f"Creating HDF5 dataset with vocab_size: {vocab_size}")
 
-    # Calculate max allowable `context_size` to keep chunk size < 4 GB
-    max_context_size = TARGET_CHUNK_SIZE_BYTES // (vocab_size * BYTES_PER_FLOAT)
+        vocab_size = int(vocab_size)  # Ensure vocab_size is an integer
+        dtype = 'float16' if precision <= 16 else 'float32'
+        BYTES_PER_FLOAT = 4 if dtype == 'float32' else 2
 
-    # Open the file and write the header before creating the dataset
-    h5f = h5py.File(output_file, 'w')
-    
-    # Write the header to store metadata
-    write_header(h5f, context_size, vocab_size)
-    
-    # Create the logits dataset
-    dset = h5f.create_dataset(
-        'logits',
-        shape=(total_chunks, context_size, vocab_size),
-        maxshape=(None, context_size, vocab_size),
-        dtype=dtype,
-        chunks = (1, max_context_size, vocab_size),
-        compression="gzip"
-    )
-    return h5f, dset
+        # Calculate max allowable `context_size` to keep chunk size < TARGET_CHUNK_SIZE_BYTES
+        max_context_size = min(context_size, TARGET_CHUNK_SIZE_BYTES // (vocab_size * BYTES_PER_FLOAT))
+
+        # Open the file and write the header before creating the dataset
+        h5f = h5py.File(output_file, 'w')
+
+        # Write the header to store metadata
+        write_header(h5f, context_size, vocab_size)
+
+        # Create the logits dataset
+        dset = h5f.create_dataset(
+            'logits',
+            shape=(total_chunks, context_size, vocab_size),
+            maxshape=(None, context_size, vocab_size),
+            dtype=dtype,
+            chunks=(1, max_context_size, vocab_size),
+            compression="gzip"
+        )
+
+        # Create the 'processed_chunks' dataset
+        processed_chunks_dset = create_processed_chunks_dataset(h5f, total_chunks)
+
+    return h5f, dset, processed_chunks_dset
 
 
 def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
@@ -190,7 +225,7 @@ def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
         tokens_chunk.append(eos)
 
     # Measure model inference time
-    with contextlib.redirect_stderr(open(os.devnull, 'w')):
+    with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f):
         _ = model(tokens_chunk)
     inference_time = (time.time() - start_time) * 1000  # ms
     logger.debug("Inference time: %.2f ms", inference_time)
@@ -232,7 +267,6 @@ def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
     accounted_time = inference_time + hdf5_time + gc_time
     unaccounted_time = total_time - accounted_time
 
-    # Return all timing information
     return {
         'chunk_index': chunk_index + 1,
         'total_time': total_time,
@@ -246,11 +280,14 @@ def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
 
 def generate_logits_with_llama_cpp(**kwargs):
     """Main function with corrected chunk processing and context size handling."""
-    verbosity = kwargs.get("verbosity", None).upper()
-    if verbosity is not None:
-        logger.setLevel(getattr(logging, verbosity, logging.INFO))
-
     errors = 0
+
+    # Handle `--clobber` flag
+    if kwargs.get('clobber', False) and os.path.exists(kwargs['output']):
+        os.remove(kwargs['output'])
+        logger.info(f"Existing output file {kwargs['output']} removed due to --clobber flag.")
+
+    resume = os.path.exists(kwargs['output']) and not kwargs.get('clobber', False)
 
     model = llama_cpp.Llama(**prepare_llama_args(kwargs))
     
@@ -258,93 +295,104 @@ def generate_logits_with_llama_cpp(**kwargs):
     vocab_size = model.n_vocab() if callable(getattr(model, 'n_vocab', None)) else model.n_vocab
     assert isinstance(vocab_size, int)
     logger.debug(f"Number of logits: {vocab_size}.")
-    
+
     # Read the entire text
-    with open(kwargs['input_text'], 'r', encoding='utf-8') as f:
+    with open(kwargs['dataset'], 'r', encoding='utf-8') as f:
         text_data = f.read()
     encoded_text = text_data.encode('utf-8')
 
-    # Tokenize the entire text
-    tokens = model.tokenize(encoded_text)
-    total_tokens = len(tokens)
-    logger.debug(f"Total tokens in dataset: {total_tokens}")
+    # Load or tokenize tokens
+    tokens_file = kwargs['dataset'] + '.tokens.npy'
+    if os.path.exists(tokens_file):
+        tokens = np.load(tokens_file)
+        total_tokens = len(tokens)
+        logger.info(f"Loaded precomputed tokens from {tokens_file}")
+    else:
+        # Tokenize the entire text
+        tokens = model.tokenize(encoded_text)
+        total_tokens = len(tokens)
+        logger.info(f"Tokenized dataset, total tokens: {total_tokens}")
+        np.save(tokens_file, tokens)
+        logger.info(f"Saved tokens to {tokens_file}")
 
     # Calculate total chunks
     bos = model.token_bos()
     b = 1 if bos is not None else 0
     eos = model.token_eos()
     b += 1 if eos is not None else 0
-    
+
     # Create chunks, dynamically adjusting size
     chunk_size = kwargs['context_size'] - b
     total_chunks = (total_tokens + chunk_size - 1) // chunk_size  # Round up
-    assert(total_chunks > 2)
+    assert(total_chunks > 0)
 
+    # Adjust `from` and `to` chunk indices
+    start_chunk = kwargs.get('from_chunk', 0)
+    end_chunk = kwargs.get('to_chunk', total_chunks - 1)
+    if end_chunk > total_chunks - 1:
+        end_chunk = total_chunks - 1
+    if start_chunk > end_chunk:
+        logger.error(f"Invalid chunk range: from {start_chunk} to {end_chunk}")
+        return
+    logger.info(f"Processing chunks from {start_chunk} to {end_chunk}")
 
     precision = kwargs['precision'] if kwargs.get('precision') is not None \
         else estimate_model_precision(kwargs['model'])
 
     # Create HDF5 dataset
-    h5f, dset = create_hdf5_dataset(kwargs['output'], total_chunks, vocab_size, kwargs['context_size'], precision)
 
-    # Process the first two chunks independently
-    timing_logs = []
+    h5f, dset, processed_chunks_dset = create_hdf5_dataset(kwargs['output'], total_chunks, vocab_size, kwargs['context_size'], precision, resume=resume)
 
-    initial_chunks = [0, 1]
+    try:
+        total_chunks_processed = 0
+        errors = 0
+        timing_logs = []
 
-    for chunk_index in initial_chunks:
-        start_index = chunk_index * chunk_size
-        end_index = (chunk_index + 1) * chunk_size
-        tokens_chunk = tokens[start_index:end_index]
+        # Process the chunks
+        for chunk_index in range(start_chunk, end_chunk + 1):
+            if processed_chunks_dset[chunk_index]:
+                logger.info(f"Skipping chunk {chunk_index} as it has already been processed.")
+                continue
+            start_index = chunk_index * chunk_size
+            end_index = min((chunk_index + 1) * chunk_size, total_tokens)
+            tokens_chunk = tokens[start_index:end_index]
 
-        # Process the chunk and collect timing information
-        timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
-        timing_logs.append(timing_info)
-        errors += timing_info['errors']
+            # Process the chunk and collect timing information
+            timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
+            total_chunks_processed += 1
+            errors += timing_info['errors']
 
-    # Estimate total runtime based on the average time of the first two chunks
-    if len(timing_logs) > 1:
-        # Use second chunk as baseline for remaining chunks
-        avg_chunk_time = sum([log['total_time'] for log in timing_logs]) / len(initial_chunks)
-        estimated_runtime = (avg_chunk_time * total_chunks) / (60 * 1000)  # Convert ms to minutes
-    else:
-        # If we only have one chunk (small datasets)
-        estimated_runtime = (timing_logs[0]['total_time'] * total_chunks) / (60 * 1000)
-    logger.info(f"Estimated runtime: {estimated_runtime:.2f} minutes for {total_chunks} chunks of {chunk_size} tokens")
+            # Mark the chunk as processed
+            processed_chunks_dset[chunk_index] = True
+            h5f.flush()  # Ensure data is written to disk
 
-    # Estimate disk size
-    estimate_disk_size(total_chunks, kwargs['context_size'], vocab_size, precision)
+            timing_logs.append(timing_info)
 
-    # Log the timings for the first two chunks
-    for log in timing_logs:
-        if logger.level == logging.DEBUG:
-            logger.info(f"[{log['chunk_index']}] {log['total_time']:.2f} ms (inference time: {log['inference_time']:.2f} ms, HDF5 time: {log['hdf5_time']:.2f} ms, GC time: {log['gc_time']:.2f} ms, unaccounted: {log['unaccounted_time']:.2f} ms)")
+            if logger.level == logging.DEBUG:
+                logger.info(f"[{timing_info['chunk_index']}] {timing_info['total_time']:.2f} ms (inference time: {timing_info['inference_time']:.2f} ms, HDF5 time: {timing_info['hdf5_time']:.2f} ms, GC time: {timing_info['gc_time']:.2f} ms, unaccounted: {timing_info['unaccounted_time']:.2f} ms)")
+            else:
+                print(f"[{timing_info['chunk_index']}] {timing_info['total_time']:.2f} ms", end=' ', flush=True)
+
+            # Estimate runtime after processing the first chunk
+            if total_chunks_processed == 1:
+                avg_chunk_time = timing_info['total_time']
+                remaining_chunks = (end_chunk - chunk_index)
+                estimated_runtime = (avg_chunk_time * remaining_chunks) / (60 * 1000)  # Convert ms to minutes
+                logger.info(f"\nEstimated runtime: {estimated_runtime:.2f} minutes for {remaining_chunks} remaining chunks")
+
+    except KeyboardInterrupt:
+        logger.info("Processing interrupted by user.")
+
+    finally:
+        # Ensure the HDF5 file is closed if it was opened
+        if total_chunks_processed == 0:
+            logger.info(f"No new chunks were processed. All chunks in the specified range have been processed.")
         else:
-            print(f"[{log['chunk_index']}] {log['total_time']:.2f} ms", end=' ', flush=True)
-
-    total_chunks_processed = len(initial_chunks)
-
-    # Process the rest of the chunks
-    for chunk_index in range(len(initial_chunks), total_chunks):
-        start_index = chunk_index * chunk_size
-        end_index = min((chunk_index + 1) * chunk_size, total_tokens)
-        tokens_chunk = tokens[start_index:end_index]
-
-        # Process the chunk and collect timing information
-        timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
-        total_chunks_processed += 1
-        errors += timing_info['errors']
-
-        if logger.level == logging.DEBUG:
-            logger.info(f"[{timing_info['chunk_index']}] {timing_info['total_time']:.2f} ms (inference time: {timing_info['inference_time']:.2f} ms, HDF5 time: {timing_info['hdf5_time']:.2f} ms, GC time: {timing_info['gc_time']:.2f} ms, unaccounted: {timing_info['unaccounted_time']:.2f} ms)")
-        else:
-            print(f"[{timing_info['chunk_index']}] {timing_info['total_time']:.2f} ms", end=' ', flush=True)
-
-    h5f.close()
-    logger.info(f"\nProcessed {total_chunks_processed} chunks")
-    if errors > 0:
-        logger.warning(f"Total errors detected during logit generation: {errors}")
-    logger.info(f"Final file size: {os.path.getsize(kwargs['output']) / (1024 * 1024):.2f} MB")
+            logger.info(f"\nProcessed {total_chunks_processed} chunks")
+            if errors > 0:
+                logger.warning(f"Total errors detected during logit generation: {errors}")
+            logger.info(f"Final file size: {os.path.getsize(kwargs['output']) / (1024 * 1024):.2f} MB")
+        h5f.close()
 
 
 if __name__ == "__main__":
@@ -355,6 +403,16 @@ if __name__ == "__main__":
     parser.add_argument('--context-size', type=int, required=False, help="The model's context size.")
     parser.add_argument('--dataset', type=str, required=True, help='Path to the dataset.txt file.')
     parser.add_argument('--output', type=str, default="logits.h5", help='Output file for logits.')
+    parser.add_argument('--n-gpu-layers', type=int, default=None, help='Number of layers to store in VRAM.')
+    parser.add_argument('--threads', type=int, default=max(1, os.cpu_count() - 1), help='Number of threads to use for parallel processing (default: system threads - 1)')
+    parser.add_argument('--batch-size', type=int, default=2048, help='Logical maximum batch size (default: 2048)')
+    parser.add_argument('--ubatch-size', type=int, default=512, help='Physical maximum batch size (default: 512)')
+    parser.add_argument('--precision', type=int, choices=[16,32], default=None, help='Precision of the model weights and activations (default: auto-estimated, POSSIBLY INCORRECT).')
+
+    parser.add_argument('--from', dest='from_chunk', type=int, default=0, help="Optional starting chunk index for processing (default: 0)")
+    parser.add_argument('--to', dest='to_chunk', type=int, help="Optional ending chunk index for processing (default: last chunk)")
+    parser.add_argument('--clobber', action='store_true', help="Overwrite existing output file")
+
     parser.add_argument('--rope-freq-base', type=float, default=None, help='ROPE frequency base. (default: automatically assigned)')
     parser.add_argument('--repeat-last-n', type=int, default=64, help='Last n tokens to consider for penalize (default: 64, 0 = disabled, -1 = ctx_size)')
     parser.add_argument('--repeat-penalty', type=float, default=1.0, help='Penalize repeat sequence of tokens (default: 1.0, 1.0 = disabled)')
@@ -365,11 +423,7 @@ if __name__ == "__main__":
     parser.add_argument('--mirostat', type=int, default=0, help='Use Mirostat sampling. (default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0)')
     parser.add_argument('--mirostat-lr', type=float, default=0.1, help='Mirostat learning rate, parameter eta (default: 0.1)')
     parser.add_argument('--mirostat-ent', type=float, default=5.0, help='Mirostat target entropy, parameter tau (default: 5.0)')
-    parser.add_argument('--n-gpu-layers', type=int, default=None, help='Number of layers to store in VRAM.')
-    parser.add_argument('--threads', type=int, default=max(1, os.cpu_count() - 1), help='Number of threads to use for parallel processing (default: system threads - 1)')
-    parser.add_argument('--batch-size', type=int, default=2048, help='Logical maximum batch size (default: 2048)')
-    parser.add_argument('--ubatch-size', type=int, default=512, help='Physical maximum batch size (default: 512)')
-    parser.add_argument('--precision', type=int, choices=[16,32], default=None, help='Precision of the model weights and activations (default: auto-estimated, POSSIBLY INCORRECT).')
+
     parser.add_argument(
         '--verbosity',
         type=str,
@@ -380,6 +434,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args_dict = vars(args)
-    args_dict['input_text'] = args_dict.pop('dataset')  # Ensure 'input_text' points to the dataset path
-    
+
+    configure_logger()
+    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    logging.info(f"Server starting with generate_logits version {__version__}")
+
     generate_logits_with_llama_cpp(**args_dict)

@@ -10,11 +10,6 @@ from typing import Optional
 
 LOG_LEVEL = logging.INFO
 
-# Set up logger
-logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
-logger = logging.getLogger(__name__)
-
-
 class ChunkStats(BaseModel):
     ChunkNumber: int
     Average: float
@@ -33,6 +28,16 @@ class ChunkStats(BaseModel):
 class KLFileStructure(BaseModel):
     chunks: list[ChunkStats] = Field(description="Statistics for each chunk")
     overall: Optional[ChunkStats] = Field(description="Overall statistics across all chunks")
+
+
+def configure_logger(external_logger=None):
+    """Configures a logger for generate_logits. Uses an external logger if provided."""
+    global logger  # Make logger accessible throughout the module
+    if external_logger:
+        logger = external_logger
+    else:
+        logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
+        logger = logging.getLogger(__name__)
 
 
 def kl_divergence(p, q):
@@ -180,7 +185,7 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
         if end_chunk == total_chunks:  # Only finalize if we're at the end
             overall_stats = {
                 "Average": overall_sum / total_values,
-                "StdDev": np.sqrt(overall_sumsq / total_values - (overall_sum / total_values) ** 2),
+                "StdDev": np.sqrt(np.maximum(0, overall_sumsq / total_values - (overall_sum / total_values) ** 2)),
                 "Minimum": overall_min,
                 "Maximum": overall_max,
                 "KLD_99": digest.percentile(99),
@@ -198,6 +203,8 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
 
 if __name__ == '__main__':
     import argparse
+
+    configure_logger()
     
     parser = argparse.ArgumentParser(description="Calculate KL-divergence between two logits HDF5 files.")
     parser.add_argument('baseline_file', type=str, help="Path to the baseline logits HDF5 file.")

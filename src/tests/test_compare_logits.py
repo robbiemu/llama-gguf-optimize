@@ -14,7 +14,13 @@ from compare_logits import (
     calculate_statistics,
     check_output_file_conditions,
     process_chunks,
+    configure_logger
 )
+
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("compare_logits")
+configure_logger(logger)
 
 
 class TestKLScript(unittest.TestCase):
