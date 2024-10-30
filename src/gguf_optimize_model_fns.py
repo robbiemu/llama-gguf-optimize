@@ -34,11 +34,11 @@ def estimate_model_parameters(metadata):
     return total_params
 
 
-def estimate_model_precision(model_path):
+def estimate_model_precision(model_path=None, model=None):
     try:
-        with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
-
-            model = llama_cpp.Llama(model_path)
+        if model is None:
+            with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
+                model = llama_cpp.Llama(model_path)
 
         # Estimate number of parameters based on the architecture metadata
         num_params = estimate_model_parameters(model.metadata)

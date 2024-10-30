@@ -457,21 +457,35 @@ def tokenize(model, kwargs):
 
 
 def get_model_config(model_path):
-    """Extract model configuration (hidden size, layers) from the model's config file."""
-    # Assuming a 'config.json' is present in the same directory as the model
+    """
+    Extract model configuration (hidden size, layers) from the model's config file or gguf metadata if available.
+    """
+    # Check if config.json exists
     config_path = os.path.join(os.path.dirname(model_path), 'config.json')
     
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-            hidden_size = config.get('hidden_size', 4096)
-            num_layers = config.get('num_hidden_layers', 32)
-    else:
-        # Default values if config is missing
-        hidden_size = 4096
-        num_layers = 32
+    hidden_size = None
+    num_layers = None
+    model = None
+
+    try:
+        with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
+            model = llama_cpp.Llama(model_path)
+            metadata = model.metadata
+            
+            hidden_size = int(metadata['llama.embedding_length'])
+            num_layers = int(metadata['llama.block_count'])
+    except KeyError as e:
+        logger.error(f"Key missing in gguf metadata: {e}")
+        raise KeyError(f"Required key missing in gguf metadata: {e}")
+    except Exception as e:
+        logger.error(f"Failed to load metadata from gguf model: {e}")
+        raise RuntimeError("Failed to retrieve model configuration from config.json or gguf metadata.")
     
-    return hidden_size, num_layers
+    # Final check to ensure both values are set
+    if hidden_size is None or num_layers is None:
+        raise ValueError("Model configuration is incomplete: hidden_size or num_layers is missing.")
+
+    return hidden_size, num_layers, model
 
 
 def create_trial(study: optuna.Study, batch_exponent_range, ubatch_exponent_range, default_n_batch=None, default_n_ubatch=None):
@@ -660,8 +674,8 @@ def report_results(study):
 def initialize_batch_and_model_config(kwargs):
     """Initialize model config and estimate batch sizes."""
     model_size_gb = get_model_size_gb(kwargs['model'])
-    hidden_size, num_layers = get_model_config(kwargs['model'])
-    precision_bits = estimate_model_precision(kwargs['model'])
+    hidden_size, num_layers, model = get_model_config(kwargs['model'])
+    precision_bits = estimate_model_precision(model=model)
     available_memory_gb = get_available_memory_gb()
 
     # Estimate the maximum batch size
@@ -673,14 +687,15 @@ def initialize_batch_and_model_config(kwargs):
         kwargs['context_size'], 
         available_memory_gb
     )
-    if kwargs['conform_to_imatrix']:
-        max_batch_size = min(max_batch_size, kwargs['context_size'])
 
     # Define exponent range for batch sizes, starting from 2^4 (16) up to max_batch_size
+    max_batch_size = min(max_batch_size, kwargs['context_size'])
     batch_exponent_range = ExponentRange(4, int(max_batch_size).bit_length() - 1)
 
     # Ubatch exponents should include 2, 4, 8 (1, 2, 3) as well as the range for batch sizes
-    ubatch_exponent_range = ExponentRange(1, batch_exponent_range.max)
+    max_ubatch_size = min(batch_exponent_range.max, math.floor(math.log2(model.n_ctx))) \
+        if kwargs['conform_to_imatrix'] else batch_exponent_range.max
+    ubatch_exponent_range = ExponentRange(1, max_ubatch_size)
 
     return batch_exponent_range, ubatch_exponent_range
 

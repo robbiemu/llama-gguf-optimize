@@ -54,41 +54,66 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
                 result = get_model_size_gb("dummy/path/model.bin")
                 self.assertAlmostEqual(result, expected_gb, places=6)
 
-    @patch('os.path.exists')
-    def test_get_model_config(self, mock_exists):
-        """Test when the config.json file exists."""
-        
-        # Mock the os.path.exists function to return True
-        mock_exists.return_value = True
-        
-        # Mock the open function to return a MagicMock that simulates file reading
-        with patch('builtins.open', new_callable=MagicMock) as mock_open:
-            # Set up the mock to return a specific JSON content
-            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({
-                'hidden_size': 1024,
-                'num_hidden_layers': 8
-            })
-            
-            # Call the function with a model path
-            hidden_size, num_layers = get_model_config('/path/to/model')
-            
-            # Assert that the returned values match the expected configuration
-            self.assertEqual(hidden_size, 1024)
-            self.assertEqual(num_layers, 8)
+    @patch('os.path.getsize')
+    def test_get_model_size_gb_edge_sizes(self, mock_getsize):
+        # Edge cases for model size: zero bytes and very large file size
+        mock_getsize.return_value = 0
+        result = get_model_size_gb("dummy/path/model.bin")
+        self.assertEqual(result, 0.0)  # Expecting 0 GB for empty file
 
-    @patch('os.path.exists')
-    def test_get_model_config_config_missing(self, mock_exists):
-        """Test when the config.json file is missing."""
+        mock_getsize.return_value = 100 * 1024**3  # 100 GB
+        result = get_model_size_gb("dummy/path/model.bin")
+        self.assertEqual(result, 100.0)  # Expecting 100 GB
+
+    @patch('llama_cpp.Llama')
+    def test_get_model_config_successful_metadata_extraction(self, mock_llama):
+        """Test when the metadata is successfully extracted from gguf."""
         
-        # Mock the os.path.exists function to return False
-        mock_exists.return_value = False
+        # Mock Llama instance and its metadata
+        mock_model_instance = MockModel('/path/to/model')
+        mock_model_instance.metadata = {
+            'llama.embedding_length': 1024,
+            'llama.block_count': 8
+        }
+        mock_llama.return_value = mock_model_instance
         
         # Call the function with a model path
-        hidden_size, num_layers = get_model_config('/path/to/model')
+        hidden_size, num_layers, model = get_model_config('/path/to/model')
         
-        # Assert that the returned values match the default configuration
-        self.assertEqual(hidden_size, 4096)
-        self.assertEqual(num_layers, 32)
+        # Assert that the returned values match the expected metadata configuration
+        self.assertEqual(hidden_size, 1024)
+        self.assertEqual(num_layers, 8)
+        self.assertEqual(model, mock_model_instance)
+
+    @patch('llama_cpp.Llama')
+    def test_get_model_config_missing_metadata_key(self, mock_llama):
+        """Test when a required metadata key is missing from gguf."""
+        
+        # Mock Llama instance with incomplete metadata
+        mock_model_instance = MockModel('/path/to/model')
+        mock_model_instance.metadata = {
+            'llama.embedding_length': 1024
+            # 'llama.block_count' is missing
+        }
+        mock_llama.return_value = mock_model_instance
+        
+        # Expect KeyError due to missing metadata
+        with self.assertRaises(KeyError) as context:
+            get_model_config('/path/to/model')
+        
+        self.assertIn('Required key missing in gguf metadata', str(context.exception))
+
+    @patch('llama_cpp.Llama')
+    def test_get_model_config_failed_to_load_metadata(self, mock_llama):
+        """Test when the model loading fails due to an exception."""
+        
+        # Simulate an exception when initializing the model
+        mock_llama.side_effect = RuntimeError("Failed to load model")
+        
+        with self.assertRaises(RuntimeError) as context:
+            get_model_config('/path/to/model')
+        
+        self.assertIn("Failed to retrieve model configuration", str(context.exception))
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_get_available_memory_gb_cuda_available(self):
@@ -190,12 +215,26 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         with self.assertRaises(TypeError):
             estimate_max_batch_size(2.0, 'wide', 12, 16, 512, 16.0)  # hidden_size is not a number
 
-    @patch('best_bub.estimate_max_batch_size', return_value=1024)  # Expect max_batch_size = 1024
+    def test_estimate_max_batch_size_min_precision(self):
+        model_size_gb = 2.0
+        hidden_size = 1024
+        num_layers = 12
+        precision_bits = 1  # Minimal precision bits
+        sequence_length = 512
+        available_memory_gb = 16.0
+
+        # Expected max batch size based on smallest precision bit usage
+        expected_max_batch_size = (available_memory_gb - model_size_gb) * (1024 ** 3) // (hidden_size * num_layers * precision_bits / 8)
+        
+        max_batch_size = estimate_max_batch_size(model_size_gb, hidden_size, num_layers, precision_bits, sequence_length, available_memory_gb)
+        self.assertEqual(max_batch_size, expected_max_batch_size)
+
+    @patch('best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
     @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
     @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
-    @patch('best_bub.get_model_config', return_value=(1024, 32))  # Assume hidden_size=1024, num_layers=32
+    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
     @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
-    def test_initialize_batch_and_model_config(
+    def test_initialize_batch_and_model_config_lower_context(
             self, 
             mock_get_model_size_gb, 
             mock_get_model_config, 
@@ -206,7 +245,7 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         # Define kwargs as input to the function
         kwargs = {
             'model': 'dummy_model_path',
-            'context_size': 512,
+            'context_size': 2**9,
             'conform_to_imatrix': False
         }
 
@@ -214,15 +253,15 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
 
         # Verify the function returned expected exponent ranges
-        self.assertEqual(batch_exponent_range, ExponentRange(min=4, max=10))  # 2^10 = 1024
-        self.assertEqual(ubatch_exponent_range, ExponentRange(min=1, max=10))
+        self.assertEqual(batch_exponent_range, ExponentRange(min=4, max=9))
+        self.assertEqual(ubatch_exponent_range, ExponentRange(min=1, max=9))
 
-    @patch('best_bub.estimate_max_batch_size', return_value=1024)  # Expect max_batch_size = 1024
+    @patch('best_bub.estimate_max_batch_size', return_value=2**9)  # Expect max_batch_size = 1024
     @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
     @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
-    @patch('best_bub.get_model_config', return_value=(1024, 32))  # Assume hidden_size=1024, num_layers=32
+    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
     @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
-    def test_initialize_batch_and_model_config_conform_to_imatrix(
+    def test_initialize_batch_and_model_config_lower_max_batch(
             self, 
             mock_get_model_size_gb, 
             mock_get_model_config, 
@@ -230,50 +269,112 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
             mock_get_available_memory_gb, 
             mock_estimate_max_batch_size):
         
-        # Define kwargs to set conform_to_imatrix to True, with a smaller context size
+        # Define kwargs as input to the function
         kwargs = {
             'model': 'dummy_model_path',
-            'context_size': 512,  # Smaller than max_batch_size, should limit it
-            'conform_to_imatrix': True
+            'context_size': 2**10,
+            'conform_to_imatrix': False
         }
 
         # Call the function under test
         batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
 
-        # Verify that batch_exponent_range max is limited by context_size exponent (2^9 = 512)
+        # Verify the function returned expected exponent ranges
         self.assertEqual(batch_exponent_range, ExponentRange(min=4, max=9))
         self.assertEqual(ubatch_exponent_range, ExponentRange(min=1, max=9))
 
-        # Ensure mocks were called as expected
-        mock_get_model_size_gb.assert_called_once_with(kwargs['model'])
-        mock_get_model_config.assert_called_once_with(kwargs['model'])
-        mock_estimate_model_precision.assert_called_once_with(kwargs['model'])
-        mock_get_available_memory_gb.assert_called_once()
-        mock_estimate_max_batch_size.assert_called_once_with(
-            4, 1024, 32, 16, kwargs['context_size'], 16
-        )
+    @patch('best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
+    @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
+    @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
+    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
+    @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
+    def test_initialize_batch_and_model_config_equal_max_batch_and_context(
+            self, 
+            mock_get_model_size_gb, 
+            mock_get_model_config, 
+            mock_estimate_model_precision, 
+            mock_get_available_memory_gb, 
+            mock_estimate_max_batch_size):
+        
+        # Define kwargs as input to the function
+        kwargs = {
+            'model': 'dummy_model_path',
+            'context_size': 2**10,
+            'conform_to_imatrix': False
+        }
 
+        # Call the function under test
+        batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
 
+        # Verify the function returned expected exponent ranges
+        self.assertEqual(batch_exponent_range, ExponentRange(min=4, max=10))
+        self.assertEqual(ubatch_exponent_range, ExponentRange(min=1, max=10))
+
+    @patch('llama_cpp.Llama')  # Replace llama_cpp.Llama directly with MockModel
+    @patch('best_bub.get_model_size_gb', return_value=4)
+    @patch('best_bub.get_available_memory_gb', return_value=16)
+    @patch('best_bub.estimate_model_precision', return_value=16)
+    def test_initialize_batch_with_mock_model_metadata_conformant_to_imatrix(
+        self, 
+        mock_estimate_model_precision,
+        mock_get_available_memory_gb, 
+        mock_get_model_size_gb, 
+        MockLlama
+    ):
+        # Define test arguments
+        kwargs = {
+            'model': 'dummy model',
+            'context_size': 2**9,  # Set context size as needed for test
+            'conform_to_imatrix': True
+        }
+
+        # Create and configure a mock model instance
+        mock_model_instance = MockModel('dummy model path')
+        mock_model_instance.metadata['llama.embedding_length'] = 512
+        mock_model_instance.metadata['llama.block_count'] = 8
+        mock_model_instance.n_ctx = 2**7  # Model context size
+        MockLlama.return_value = mock_model_instance
+
+        # Call the function under test
+        batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
+
+        # Assertions for batch and ubatch exponent ranges
+        self.assertEqual(batch_exponent_range.min, 4)
+        self.assertEqual(batch_exponent_range.max, 9)
+        self.assertEqual(ubatch_exponent_range.min, 1)
+        self.assertEqual(ubatch_exponent_range.max, 7)
+
+        # Additional assertions to confirm correct usage of MockModel
+        self.assertIsInstance(batch_exponent_range, ExponentRange)
+        self.assertIsInstance(ubatch_exponent_range, ExponentRange)
+
+    @patch('llama_cpp.Llama')
     @patch('best_bub.estimate_max_batch_size', return_value=128)
     @patch('best_bub.get_available_memory_gb', return_value=2)  # Assume 2 GB available
     @patch('best_bub.estimate_model_precision', return_value=8)  # Assume 8-bit precision
-    @patch('best_bub.get_model_config', return_value=(512, 8))  # Assume hidden_size=512, num_layers=8
     @patch('best_bub.get_model_size_gb', return_value=1)  # Assume 1 GB model size
-    def test_conform_to_imatrix_option(
+    def test_initialize_batch_conform_to_imatrix_option(
             self,
             mock_get_model_size_gb,
-            mock_get_model_config,
             mock_estimate_model_precision,
             mock_get_available_memory_gb,
-            mock_estimate_max_batch_size):
+            mock_estimate_max_batch_size,
+            MockLlama):
         
         # Define kwargs with a context size smaller than estimated max batch size
         kwargs = {
-            'model': 'dummy_model_path',
-            'context_size': 64,
+            'model': 'dummy model path',
+            'context_size': 2**6, # smaller than model context 2^7
             'conform_to_imatrix': True
         }
-        
+
+        # Create and configure a mock model instance
+        mock_model_instance = MockModel('dummy model path')
+        mock_model_instance.metadata['llama.embedding_length'] = 512
+        mock_model_instance.metadata['llama.block_count'] = 8
+        mock_model_instance.n_ctx = 2**7  # Model context size
+        MockLlama.return_value = mock_model_instance
+
         # Call the function under test
         batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
         
@@ -285,7 +386,6 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         mock_estimate_max_batch_size.assert_called_once_with(
             1, 512, 8, 8, kwargs['context_size'], 2
         )
-
 
 class TestExecuteTrials(unittest.TestCase):
     def setUp(self):
@@ -309,7 +409,7 @@ class TestExecuteTrials(unittest.TestCase):
     def test_create_trial(self):
         self.assertTrue(callable(create_trial))
 
-    def test_update_best_chunk_time_with_pvalue(self):
+    def test_update_best_chunk_time_with_probability(self):
         self.assertTrue(callable(update_best_chunk_time_with_probability))
 
     def test_update_bayesian_mean_variance(self):

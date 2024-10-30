@@ -1,9 +1,8 @@
 [project]
 name = "llama-gguf-optimize"
-version = "0.1.0"
 description = "Add your description here"
 authors = [
-    { name = "Roberto Tomás", email = "roberto.tomas.cuentas@gmail.com" }
+    { name = "Roberto Tomás Collins", email = "roberto.tomas.cuentas@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -19,6 +18,10 @@ dependencies = [
     "tdigest~=0.5.2.2",
     "torch~=2.5.1",
 ]
+dynamic = ["version"]
+
+[tool.hatch.version]
+path = "src/version.py"
 
 [build-system]
 requires = ["hatchling"]

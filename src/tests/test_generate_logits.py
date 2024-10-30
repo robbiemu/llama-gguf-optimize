@@ -1,4 +1,3 @@
-import contextlib 
 import h5py
 import llama_cpp
 import logging
@@ -8,7 +7,7 @@ import random
 import string
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from mock_model import MockModel
 from version import __version__
@@ -120,7 +119,7 @@ class TestProcessTokensChunk(unittest.TestCase):
 
     def test_process_tokens_chunk(self):
         # Create a mock model
-        model = MockModel()
+        model = MockModel('dummy model')
 
         # Tokens chunk
         tokens_chunk = [3, 4, 5, 6, 7]
@@ -161,7 +160,7 @@ class TestProcessTokensChunk(unittest.TestCase):
 
     def test_process_tokens_chunk(self):
         # Create a mock model
-        model = MockModel('foo')
+        model = MockModel('dummy model')
 
         # Tokens chunk
         tokens_chunk = [3, 4, 5, 6, 7]
@@ -200,7 +199,8 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
     def tearDown(self):
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
 
-    def test_generate_logits_with_llama_cpp(self):
+    @patch('llama_cpp.Llama', new_callable=MagicMock)
+    def test_generate_logits_with_llama_cpp(self, MockLlama):
         # Prepare arguments
         kwargs = {
             'model': 'path/to/mock/model',
@@ -228,6 +228,10 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
             'precision': None,
         }
 
+        model_args = prepare_llama_args(kwargs)
+        mock_model_instance = MockModel(**model_args)
+        MockLlama.return_value = mock_model_instance
+
         with tempfile.NamedTemporaryFile('w', delete=True) as input_file, \
             tempfile.NamedTemporaryFile('w', delete=True) as output_file:
 
@@ -238,16 +242,14 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
             kwargs['dataset'] = input_file.name  # Pass the temporary input file
             kwargs['output'] = output_file.name  # Set the output to a temporary file
 
-            # Mock the Llama model
-            with patch('llama_cpp.Llama', new=MockModel):
-                # Call the function
-                generate_logits_with_llama_cpp(**kwargs)
+            # Call the function
+            generate_logits_with_llama_cpp(**kwargs)
 
-                # Check that the output file is created and contains expected datasets
-                with h5py.File(output_file.name, 'r') as h5f:
-                    self.assertIn('logits', h5f, "'logits' dataset not found in output file.")
-                    self.assertIn('processed_chunks', h5f, "'processed_chunks' dataset not found in output file.")
-                    # Additional checks can be added here, such as verifying data contents
+            # Check that the output file is created and contains expected datasets
+            with h5py.File(output_file.name, 'r') as h5f:
+                self.assertIn('logits', h5f, "'logits' dataset not found in output file.")
+                self.assertIn('processed_chunks', h5f, "'processed_chunks' dataset not found in output file.")
+                # Additional checks can be added here, such as verifying data contents
 
 
 if __name__ == '__main__':
