@@ -402,7 +402,10 @@ def objective(queue, pre_chunked_text, kwargs, n_batch, n_ubatch, best_chunk_tim
             queue.put((chunk_num, total_time))  # Send the chunk number and its time to the queue
             
         # Send the final result (average chunk time) to the parent process
-        queue.put(("done", sum(chunk_times) / len(chunk_times)))
+        if chunk_times:
+            queue.put(("done", sum(chunk_times) / len(chunk_times)))
+        else:
+            queue.put(("done", None))  # Indicate no data was processed
 
     except Exception as e:
         if 'CUDA out of memory' in str(e) or 'OOM' in str(e):
