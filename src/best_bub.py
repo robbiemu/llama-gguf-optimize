@@ -15,6 +15,11 @@ import string
 import time
 import torch
 
+from version import __version__
+from gguf_optimize_model_fns import estimate_model_precision
+
+
+logger = logging.getLogger(__name__)
 
 ExponentRange = namedtuple('ExponentRange', ['min', 'max'])
 
@@ -38,21 +43,6 @@ if torch.backends.mps.is_available():
     torch.mps.synchronize()
 else:
     device = torch.device("cpu")
-
-LOG_LEVEL = logging.INFO
-
-if LOG_LEVEL == logging.DEBUG:
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S'
-    )
-else:
-    logging.basicConfig(
-        level=LOG_LEVEL,
-        format='%(levelname)s - %(message)s'
-    )
-logger = logging.getLogger(__name__)
 
 
 def update_bayesian_mean_variance(prior_mean, prior_variance, new_data):
@@ -170,6 +160,7 @@ def evaluate_trial(trial_time, best_time, trial_params, p_value, margin=0.05):
         near_best_trials = []
         if p_value < margin:
             logging.info("New best trial found.")
+
             return "best"
         else:
             logging.warning(
@@ -177,7 +168,9 @@ def evaluate_trial(trial_time, best_time, trial_params, p_value, margin=0.05):
                 trial_time, best_time, p_value
             )
             near_best_trials.append({"params": trial_params, "chunk_time": trial_time, "p_value": p_value})
+
             return "near_best"
+        
     return "worse"
 
 
@@ -185,63 +178,8 @@ def get_model_size_gb(model_path):
     """Get the model size in GB by checking the file size on disk."""
     model_size_bytes = os.path.getsize(model_path)
     model_size_gb = model_size_bytes / (1024 ** 3)  # Convert to GB
+
     return model_size_gb
-
-
-def estimate_model_parameters(metadata):
-    try:
-        # Extract relevant metadata values
-        vocab_size = int(metadata.get("llama.vocab_size", 0))
-        embedding_length = int(metadata.get("llama.embedding_length", 0))
-        feed_forward_length = int(metadata.get("llama.feed_forward_length", 0))
-        num_layers = int(metadata.get("llama.block_count", 0))
-
-        if vocab_size == 0 or embedding_length == 0 or feed_forward_length == 0 or num_layers == 0:
-            print("Missing metadata for parameter estimation.")
-            return None
-
-        # Embedding parameters
-        embedding_params = vocab_size * embedding_length
-
-        # Self-attention and feed-forward parameters (no need to include num_attention_heads separately)
-        layer_params_per_layer = 4 * embedding_length**2 + 4 * embedding_length * feed_forward_length
-
-        # Total parameters = embedding parameters + layer parameters across all layers
-        total_params = embedding_params + (num_layers * layer_params_per_layer)
-        logger.debug(f"Estimated number of paramters: {total_params}")
-        return total_params
-
-    except (ValueError, KeyError) as e:
-        print(f"Error estimating model parameters: {e}")
-        return None
-
-
-def estimate_model_precision(model_path):
-    try:
-        with contextlib.redirect_stderr(open(os.devnull, 'w')), contextlib.redirect_stdout(open(os.devnull, 'w')):
-            model = llama_cpp.Llama(model_path)
-
-        # Estimate number of parameters based on the architecture metadata
-        num_params = estimate_model_parameters(model.metadata)
-
-        if num_params is None or num_params == 0:
-            logger.warning("Unable to estimate number of parameters. Defaulting to 32.0 bits.")
-            return 32
-
-        # Get file size in bytes
-        file_size_bytes = os.path.getsize(model_path)
-
-        # Calculate bits per weight
-        bits_per_weight = (file_size_bytes * 8) / num_params
-        logger.info(f"Estimated Model Precision: {bits_per_weight} bits per weight")
-        return bits_per_weight
-
-    except FileNotFoundError:
-        logger.error(f"GGUF file not found at path: {model_path}. Defaulting to 32.0 bits.")
-        return 32
-    except Exception as e:
-        logger.error(f"An error occurred while processing the GGUF file: {e}. Defaulting to 32.0 bits.")
-        return 32
 
 
 def get_available_memory_gb():
@@ -249,11 +187,13 @@ def get_available_memory_gb():
     if torch.cuda.is_available():
         # If CUDA is available, get GPU memory
         total_memory = torch.cuda.get_device_properties(0).total_memory
+
         # Use full available memory
         return total_memory / (1024 ** 3)
     else:
         # For CPU or non-CUDA environments, use system memory
         total_memory = psutil.virtual_memory().total
+
         return total_memory / (1024 ** 3)
 
 
@@ -264,7 +204,7 @@ def estimate_max_batch_size(model_size_gb, hidden_size, num_layers, precision_bi
     # Subtract model size from available memory
     available_memory_bytes = available_memory_gb * (1024 ** 3)
     model_size_bytes = model_size_gb * (1024 ** 3)
-    remaining_memory = available_memory_bytes - model_size_bytes
+    remaining_memory = max(0, available_memory_bytes - model_size_bytes)
 
     # Approximate memory usage per token (scaled down further)
     bytes_per_token = hidden_size * num_layers * precision_bits / 8
@@ -277,35 +217,6 @@ def estimate_max_batch_size(model_size_gb, hidden_size, num_layers, precision_bi
     logger.info(f"Max batch size calculated: {max_batch_size}")
     
     return max_batch_size
-
-
-def test_batch_size_range(model_path, sequence_length):
-    """Test function to display the calculated batch sizes based on max batch size."""
-    model_size_gb = get_model_size_gb(model_path)
-    hidden_size, num_layers = get_model_config(model_path)
-    precision_bits = estimate_model_precision(model_path)
-    available_memory_gb = get_available_memory_gb()
-    
-    # Get max batch size estimation
-    max_batch_size = estimate_max_batch_size(
-        model_size_gb, 
-        hidden_size, 
-        num_layers, 
-        precision_bits, 
-        sequence_length, 
-        available_memory_gb
-    )
-
-    # Generate exponents for batch sizes from 2^9 (512) up to max_batch_size
-    exponent_min = 9  # 2^9 = 512
-    exponent_max = int(max_batch_size).bit_length() - 1
-    batch_exponents = list(range(exponent_min, exponent_max + 1))
-
-    # Calculate actual batch sizes from exponents
-    batch_sizes = [2 ** exp for exp in batch_exponents if 2 ** exp <= max_batch_size]
-    
-    logger.info(f"\nValid batch sizes: {batch_sizes}")
-    return batch_sizes
 
 
 def estimate_number_of_trials(ubatch_exponent_range, batch_exponent_range):
@@ -382,6 +293,7 @@ def objective_wrapper(trial, pre_chunked_text, kwargs, best_chunk_time=None):
             raise cached_result['result'][1]
         elif cached_result['result'] is not None:
             logger.debug(f"Using cached result for n_batch={n_batch}, n_ubatch={n_ubatch}")
+
             return cached_result['result']
 
     # Proceed with trial execution as usual
@@ -430,6 +342,7 @@ def objective_wrapper(trial, pre_chunked_text, kwargs, best_chunk_time=None):
         # Cache the result after successful completion
         if chunk_times:
             trial_cache[trial_key] = {'result': chunk_times, 'read_count': 0}  # Cache result with initial read_count
+
             return chunk_times
 
         raise optuna.TrialPruned("No result returned from trial process.")
@@ -437,6 +350,7 @@ def objective_wrapper(trial, pre_chunked_text, kwargs, best_chunk_time=None):
     except optuna.TrialPruned as e:
         logger.debug(f"Trial {trial.number} was pruned")
         trial_cache[trial_key] = {'result': ('exception', e), 'read_count': 0}  # Cache the pruned exception
+
         raise  # Re-raise for consistent behavior
 
     except RuntimeError as e:
@@ -465,7 +379,7 @@ def objective(queue, pre_chunked_text, kwargs, n_batch, n_ubatch, best_chunk_tim
         args['n_ubatch'] = n_ubatch
         args = prepare_llama_args(args)
         logger.debug(f"Initializing model")
-        with contextlib.redirect_stderr(open(os.devnull, 'w')), contextlib.redirect_stdout(open(os.devnull, 'w')):
+        with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
             model = llama_cpp.Llama(**args)
         logger.debug(f"Model initialized")
 
@@ -473,7 +387,7 @@ def objective(queue, pre_chunked_text, kwargs, n_batch, n_ubatch, best_chunk_tim
 
         for chunk_num, chunk in enumerate(pre_chunked_text[:kwargs['chunks']]):
             start_time = time.time()
-            with contextlib.redirect_stderr(open(os.devnull, 'w')), contextlib.redirect_stdout(open(os.devnull, 'w')):
+            with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
                 _ = model(chunk)  # Run the model inference
             total_time = (time.time() - start_time) * 1000
             chunk_times.append(total_time)
@@ -481,6 +395,7 @@ def objective(queue, pre_chunked_text, kwargs, n_batch, n_ubatch, best_chunk_tim
             # Check against best_chunk_time for pruning
             if best_chunk_time and total_time > best_chunk_time:
                 queue.put(RuntimeError("Chunk time exceeded best_chunk_time"))
+
                 return
             
             # Report each chunk time back to the main process
@@ -771,10 +686,6 @@ def initialize_batch_and_model_config(kwargs):
 
 
 def main(**kwargs):
-    verbosity = kwargs.get("verbosity", None).upper()
-    if verbosity is not None:
-        logger.setLevel(getattr(logging, verbosity, logging.INFO))
-
     study = setup_study()
 
     batch_exponent_range, ubatch_exponent_range = initialize_batch_and_model_config(kwargs)
@@ -800,7 +711,7 @@ def main(**kwargs):
 
     # Initialize model and tokenize text
     args = prepare_llama_args(kwargs)
-    with contextlib.redirect_stderr(open(os.devnull, 'w')), contextlib.redirect_stdout(open(os.devnull, 'w')):
+    with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
         model = llama_cpp.Llama(**args)
         try:
             tokenized_text = tokenize(model, kwargs)
@@ -854,4 +765,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args_dict = vars(args)
+
+    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    logging.info(f"best_bub starting (version {__version__})")
+
     main(**args_dict)

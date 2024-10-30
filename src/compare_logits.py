@@ -7,8 +7,10 @@ from scipy.special import rel_entr
 from tdigest import TDigest
 from typing import Optional
 
+from version import __version__
 
-LOG_LEVEL = logging.INFO
+
+logger = logging.getLogger(__name__)
 
 class ChunkStats(BaseModel):
     ChunkNumber: int
@@ -28,16 +30,6 @@ class ChunkStats(BaseModel):
 class KLFileStructure(BaseModel):
     chunks: list[ChunkStats] = Field(description="Statistics for each chunk")
     overall: Optional[ChunkStats] = Field(description="Overall statistics across all chunks")
-
-
-def configure_logger(external_logger=None):
-    """Configures a logger for generate_logits. Uses an external logger if provided."""
-    global logger  # Make logger accessible throughout the module
-    if external_logger:
-        logger = external_logger
-    else:
-        logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
-        logger = logging.getLogger(__name__)
 
 
 def kl_divergence(p, q):
@@ -203,8 +195,6 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
 
 if __name__ == '__main__':
     import argparse
-
-    configure_logger()
     
     parser = argparse.ArgumentParser(description="Calculate KL-divergence between two logits HDF5 files.")
     parser.add_argument('baseline_file', type=str, help="Path to the baseline logits HDF5 file.")
@@ -216,8 +206,10 @@ if __name__ == '__main__':
     parser.add_argument('--verbosity', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='INFO', help="Set the output verbosity level (default: INFO).")
 
     args = parser.parse_args()
-    logger.setLevel(getattr(logging, args.verbosity))
-    
+
+    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    logging.info(f"compare_logits starting (version {__version__})")
+
     process_chunks(
         baseline_path=args.baseline_file,
         target_path=args.target_file,
