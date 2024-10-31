@@ -6,34 +6,14 @@ import logging
 import numpy as np
 import os
 import time
-# from version import __version__
+
+from version import __version__
+from gguf_optimize_model_fns import estimate_model_precision
 
 
-__version__ = "0.3.0"  
-
-LOG_LEVEL = logging.INFO
+logger = logging.getLogger(__name__)
 
 TARGET_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
-
-
-def configure_logger(external_logger=None):
-    """Configures a logger for generate_logits. Uses an external logger if provided."""
-    global logger  # Make logger accessible throughout the module
-    if external_logger:
-        logger = external_logger
-    else:
-        if LOG_LEVEL == logging.DEBUG:
-            logging.basicConfig(
-                level=logging.DEBUG,
-                format='%(asctime)s - %(levelname)s - %(message)s',
-                datefmt='%H:%M:%S'
-            )
-        else:
-            logging.basicConfig(
-                level=LOG_LEVEL,
-                format='%(levelname)s - %(message)s'
-            )
-        logger = logging.getLogger(__name__)
 
 
 def prepare_llama_args(kwargs):
@@ -66,62 +46,6 @@ def prepare_llama_args(kwargs):
     llama_args = {k: v for k, v in llama_args.items() if v is not None}
 
     return llama_args
-
-
-def estimate_model_parameters(metadata):
-    # Extract relevant metadata values
-    vocab_size = metadata.get("llama.vocab_size")
-    embedding_length = metadata.get("llama.embedding_length")
-    feed_forward_length = metadata.get("llama.feed_forward_length")
-    num_layers = metadata.get("llama.block_count")
-
-    # Validate extracted values
-    if not all(isinstance(val, int) and val > 0 for val in [vocab_size, embedding_length, feed_forward_length, num_layers]):
-        logger.error("Missing or invalid metadata for parameter estimation.")
-        return None
-
-    # Embedding parameters
-    embedding_params = vocab_size * embedding_length
-
-    # Self-attention and feed-forward parameters
-    layer_params_per_layer = 4 * embedding_length**2 + 4 * embedding_length * feed_forward_length
-
-    # Total parameters = embedding parameters + layer parameters across all layers
-    total_params = embedding_params + (num_layers * layer_params_per_layer)
-    logger.debug(f"Estimated number of parameters: {total_params}")
-
-    return total_params
-
-
-def estimate_model_precision(model_path):
-    try:
-        with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):
-
-            model = llama_cpp.Llama(model_path)
-
-        # Estimate number of parameters based on the architecture metadata
-        num_params = estimate_model_parameters(model.metadata)
-
-        if num_params is None or num_params == 0:
-            logger.warning("Unable to estimate number of parameters. Defaulting to 32.0 bits.")
-            return 32
-
-        # Get file size in bytes
-        file_size_bytes = os.path.getsize(model_path)
-
-        # Calculate bits per weight
-        bits_per_weight = (file_size_bytes * 8) / num_params
-        logger.info(f"Estimated Model Precision: {bits_per_weight} bits per weight")
-        return bits_per_weight
-
-    except FileNotFoundError:
-        logger.error(f"GGUF file not found at path: {model_path}. Defaulting to 32.0 bits.")
-
-        return 32
-    except Exception as e:
-        logger.error(f"An error occurred while processing the GGUF file: {e}. Defaulting to 32.0 bits.")
-
-        return 32
     
 
 def estimate_disk_size(total_chunks, context_size, vocab_size, precision):
@@ -435,8 +359,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args_dict = vars(args)
 
-    configure_logger()
     logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
-    logging.info(f"Server starting with generate_logits version {__version__}")
+    logging.info(f"generate_logits starting (version {__version__})")
 
     generate_logits_with_llama_cpp(**args_dict)

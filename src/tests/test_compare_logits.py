@@ -8,19 +8,15 @@ from scipy.special import rel_entr
 import tempfile
 import unittest
 
-
 from compare_logits import (
     kl_divergence,
     calculate_statistics,
     check_output_file_conditions,
-    process_chunks,
-    configure_logger
+    process_chunks
 )
 
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("compare_logits")
-configure_logger(logger)
 
 
 class TestKLScript(unittest.TestCase):

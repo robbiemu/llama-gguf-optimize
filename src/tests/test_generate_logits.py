@@ -1,4 +1,3 @@
-import contextlib 
 import h5py
 import llama_cpp
 import logging
@@ -8,53 +7,18 @@ import random
 import string
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch, MagicMock
 
-
+from mock_model import MockModel
+from version import __version__
 from generate_logits import (
-    configure_logger, prepare_llama_args, estimate_model_parameters, 
-    estimate_model_precision, estimate_disk_size, write_header, 
-    create_hdf5_dataset, process_tokens_chunk, generate_logits_with_llama_cpp,
-    __version__
+    prepare_llama_args, estimate_disk_size, write_header, create_hdf5_dataset, 
+    process_tokens_chunk, generate_logits_with_llama_cpp
 )
 
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("generate_logits")
-configure_logger(logger)
-
-
-class MockModel:
-    def __init__(self, **kwargs):
-        self.metadata = {
-            "tokenizer.ggml.add_bos_token": "true",
-            "tokenizer.ggml.add_eos_token": "true",
-        }
-        self.n_tokens = 0
-        self.scores = np.array([])
-        self._vocab_size = 1000  
-        self.n_ctx = 128
-        # Handle any kwargs that may affect the model, if necessary
-
-    def tokenize(self, text):
-        # Simple tokenizer that converts characters to token IDs
-        return [ord(c) for c in text.decode('utf-8')]
-
-    def token_bos(self):
-        return 1  # BOS token ID
-
-    def token_eos(self):
-        return 2  # EOS token ID
-
-    def __call__(self, tokens):
-        # Simulate model inference
-        self.n_tokens = len(tokens)
-        vocab_size = self.n_vocab()
-        # Generate random scores for each token
-        self.scores = np.random.rand(self.n_tokens, vocab_size).astype(np.float32)
-
-    def n_vocab(self):
-        return self._vocab_size
 
 
 class TestGenerateLogits(unittest.TestCase):
@@ -63,19 +27,6 @@ class TestGenerateLogits(unittest.TestCase):
 
     def tearDown(self):
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
-
-    @contextlib.contextmanager
-    def temporary_logger_config(self, logger, level):
-        logging.disable(logging.NOTSET)
-        
-        original_level = logger.level
-        logger.setLevel(level)
-        try:
-            yield
-        finally:
-            logging.disable(logging.CRITICAL)
-
-            logger.setLevel(original_level)
 
     def test_prepare_llama_args(self):
         # Test to ensure unrelated arguments are not maintained in the output args
@@ -91,101 +42,6 @@ class TestGenerateLogits(unittest.TestCase):
         }
         output_args = prepare_llama_args(input_args)
         self.assertEqual(output_args, expected_args)
-
-    def test_estimate_model_parameters_valid(self):
-        # Test to ensure the estimated size is valid for the given metadata
-        metadata = {
-            'llama.vocab_size': 32000,
-            'llama.embedding_length': 4096,
-            'llama.feed_forward_length': 16384,
-            'llama.block_count': 32
-        }
-        # Expected value calculation
-        vocab_size = metadata['llama.vocab_size']
-        embedding_length = metadata['llama.embedding_length']
-        feed_forward_length = metadata['llama.feed_forward_length']
-        num_layers = metadata['llama.block_count']
-
-        embedding_params = vocab_size * embedding_length
-        layer_params_per_layer = 4 * embedding_length**2 + 4 * embedding_length * feed_forward_length
-        total_params = embedding_params + (num_layers * layer_params_per_layer)
-
-        estimated_size = estimate_model_parameters(metadata)
-        self.assertEqual(estimated_size, total_params)
-
-    def test_estimate_model_parameters_missing_parameter(self):
-        # Test to ensure the function returns None when a required parameter is missing
-        metadata = {
-            'llama.vocab_size': 32000,
-            'llama.embedding_length': 4096,
-            'llama.feed_forward_length': 16384  # Missing 'llama.block_count'
-        }
-        estimated_size = estimate_model_parameters(metadata)
-        self.assertIsNone(estimated_size)
-
-    @patch('os.path.getsize', return_value=1000000000)
-    @patch('llama_cpp.Llama')
-    def test_estimate_model_precision_valid(self, MockLlama, mock_getsize):
-        # Happy path with a valid model and valid metadata
-        mock_instance = MockLlama()
-        mock_instance.metadata = {
-            'llama.vocab_size': 32000,
-            'llama.embedding_length': 4096,
-            'llama.feed_forward_length': 16384,
-            'llama.block_count': 32
-        }
-
-        # Expected calculation
-        num_params = estimate_model_parameters(mock_instance.metadata)
-        file_size_bytes = mock_getsize.return_value
-        bits_per_weight = (file_size_bytes * 8) / num_params
-
-        estimated_precision = estimate_model_precision('mock_model.gguf')
-        self.assertEqual(float(estimated_precision), bits_per_weight)
-
-    @patch('os.path.getsize', return_value=1000000000)
-    @patch('llama_cpp.Llama')
-    def test_estimate_model_precision_missing_metadata(self, MockLlama, mock_getsize):
-        # Warning when metadata is missing or invalid
-        mock_instance = MockLlama()
-        mock_instance.metadata = None
-
-        with self.temporary_logger_config(logger, logging.ERROR), self.assertLogs('generate_logits', level='ERROR') as log:
-            estimated_precision = estimate_model_precision('mock_model.gguf')
-            self.assertEqual(float(estimated_precision), 32.0)
-            self.assertTrue(any("An error occurred while processing the GGUF file: 'NoneType' object has no attribute 'get'." in msg for msg in log.output))
-
-    @patch('os.path.getsize', return_value=1000000000)
-    @patch('llama_cpp.Llama')
-    def test_estimate_model_precision_zero_parameters(self, MockLlama, mock_getsize):
-        # Set mock metadata to trigger zero parameters condition
-        mock_instance = MockLlama()
-        mock_instance.metadata = {
-            'llama.vocab_size': 0,
-            'llama.embedding_length': 0,
-            'llama.feed_forward_length': 0,
-            'llama.block_count': 0
-        }
-
-        with self.temporary_logger_config(logger, logging.WARNING), self.assertLogs('generate_logits', level='WARNING') as log:
-            estimated_precision = estimate_model_precision('mock_model.gguf')
-            self.assertEqual(float(estimated_precision), 32.0)
-            self.assertTrue(any("Unable to estimate number of parameters. Defaulting to 32.0 bits." in msg for msg in log.output))
-
-    @patch('llama_cpp.Llama', side_effect=FileNotFoundError)
-    def test_estimate_model_precision_file_not_found(self, MockLlama):
-        with self.temporary_logger_config(logger, logging.ERROR), self.assertLogs('generate_logits', level='ERROR') as log:
-            # Call the function
-            result = estimate_model_precision("non_existent_path")
-            self.assertEqual(result, 32)
-            self.assertTrue(any("GGUF file not found at path:" in msg for msg in log.output))
-
-    @patch('llama_cpp.Llama', side_effect=Exception("Generic Error"))
-    def test_estimate_model_precision_generic_error(self, MockLlama):
-        with self.temporary_logger_config(logger, logging.ERROR), self.assertLogs('generate_logits', level='ERROR') as log:
-            estimated_precision = estimate_model_precision('mock_model.gguf')
-            self.assertEqual(float(estimated_precision), 32.0)
-            self.assertTrue(any('Generic Error' in msg for msg in log.output))
 
     def test_estimate_disk_size(self):
         # Ensure estimate_disk_size is callable
@@ -263,7 +119,7 @@ class TestProcessTokensChunk(unittest.TestCase):
 
     def test_process_tokens_chunk(self):
         # Create a mock model
-        model = MockModel()
+        model = MockModel('dummy model')
 
         # Tokens chunk
         tokens_chunk = [3, 4, 5, 6, 7]
@@ -304,7 +160,7 @@ class TestProcessTokensChunk(unittest.TestCase):
 
     def test_process_tokens_chunk(self):
         # Create a mock model
-        model = MockModel()
+        model = MockModel('dummy model')
 
         # Tokens chunk
         tokens_chunk = [3, 4, 5, 6, 7]
@@ -343,7 +199,8 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
     def tearDown(self):
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
 
-    def test_generate_logits_with_llama_cpp(self):
+    @patch('llama_cpp.Llama', new_callable=MagicMock)
+    def test_generate_logits_with_llama_cpp(self, MockLlama):
         # Prepare arguments
         kwargs = {
             'model': 'path/to/mock/model',
@@ -371,6 +228,10 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
             'precision': None,
         }
 
+        model_args = prepare_llama_args(kwargs)
+        mock_model_instance = MockModel(**model_args)
+        MockLlama.return_value = mock_model_instance
+
         with tempfile.NamedTemporaryFile('w', delete=True) as input_file, \
             tempfile.NamedTemporaryFile('w', delete=True) as output_file:
 
@@ -381,16 +242,14 @@ class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
             kwargs['dataset'] = input_file.name  # Pass the temporary input file
             kwargs['output'] = output_file.name  # Set the output to a temporary file
 
-            # Mock the Llama model
-            with patch('llama_cpp.Llama', new=MockModel):
-                # Call the function
-                generate_logits_with_llama_cpp(**kwargs)
+            # Call the function
+            generate_logits_with_llama_cpp(**kwargs)
 
-                # Check that the output file is created and contains expected datasets
-                with h5py.File(output_file.name, 'r') as h5f:
-                    self.assertIn('logits', h5f, "'logits' dataset not found in output file.")
-                    self.assertIn('processed_chunks', h5f, "'processed_chunks' dataset not found in output file.")
-                    # Additional checks can be added here, such as verifying data contents
+            # Check that the output file is created and contains expected datasets
+            with h5py.File(output_file.name, 'r') as h5f:
+                self.assertIn('logits', h5f, "'logits' dataset not found in output file.")
+                self.assertIn('processed_chunks', h5f, "'processed_chunks' dataset not found in output file.")
+                # Additional checks can be added here, such as verifying data contents
 
 
 if __name__ == '__main__':
