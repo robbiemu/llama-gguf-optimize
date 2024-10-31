@@ -1,6 +1,5 @@
 from collections import namedtuple
 import contextlib
-import json
 import llama_cpp
 import logging
 import math
@@ -47,6 +46,9 @@ else:
 
 def update_bayesian_mean_variance(prior_mean, prior_variance, new_data):
     global epsilon
+
+    if len(new_data) == 0:
+        raise ValueError("new_data array cannot be empty.")
 
     likelihood_mean = np.mean(new_data)
     n = len(new_data)
@@ -253,26 +255,59 @@ def setup_study():
     )
 
 
-def generate_random_text(target_num_tokens, model):
+def generate_random_tokens(target_num_tokens, model: llama_cpp.Llama):
     """Generates random text that tokenizes to approximately the target number of tokens."""
     generated_text = []
     total_tokens = 0
 
-    # Define a simple vocabulary of random words
-    vocabulary = [''.join(random.choices(string.ascii_lowercase, k=random.randint(3, 8))) for _ in range(1000)]
+    # Initialize word length range
+    min_word_len, max_word_len = 3, 8
+
+    # Precompute max allowable tokens and minimum k
+    acceptable_overshoot = 0.1
+    max_total_tokens = int(target_num_tokens * (1 + acceptable_overshoot))
+    min_k = max(1, int(0.01 * target_num_tokens))  # 1% of target tokens, rounded up
+
+    # Initialize tokens_per_word with a reasonable estimate
+    tokens_per_word = 1.5
+    total_words_generated = 0
 
     while total_tokens < target_num_tokens:
-        # Generate a random sentence
-        sentence = ' '.join(random.choices(vocabulary, k=100))
+        # Rebuild the vocabulary with the updated word length range
+        vocabulary = [''.join(random.choices(string.ascii_lowercase, k=random.randint(min_word_len, max_word_len))) for _ in range(200)]
+
+        # Calculate remaining tokens and adjust `k` based on it
+        remaining_tokens = target_num_tokens - total_tokens
+        k = min(100, max(min_k, int(remaining_tokens // tokens_per_word)))  # Adjust `k` using dynamic tokens_per_word
+
+        # Adjust word length range based on tokens_per_word
+        if tokens_per_word > 1.5:
+            min_word_len = max(1, min_word_len - 1)  # Reduce min word length to produce fewer tokens per word
+            max_word_len = max(min_word_len + 1, max_word_len - 1)
+        elif tokens_per_word < 1.5:
+            min_word_len += 1  # Increase min word length to produce more tokens per word
+            max_word_len = min(10, max_word_len + 1)  # Cap max word length to avoid very long words
+
+        # Generate a random sentence with dynamically adjusted `k` and updated vocabulary
+        sentence = ' '.join(random.choices(vocabulary, k=k))
         generated_text.append(sentence)
+        total_words_generated += k  # Keep track of total words generated
 
         # Concatenate the generated text
         text_so_far = ' '.join(generated_text)
 
-        # Tokenize the current text (encode as UTF-8)
+        # Tokenize and update total_tokens
         encoded_text = text_so_far.encode("utf-8")
         tokens = model.tokenize(encoded_text)
         total_tokens = len(tokens)
+
+        # Dynamically adjust tokens_per_word based on current ratio
+        tokens_per_word = total_tokens / total_words_generated  # Update after each iteration
+
+        # Early stopping if adding further would exceed max allowed tokens
+        if total_tokens > max_total_tokens:
+            generated_text.pop()  # Remove last sentence if it exceeds the allowable limit
+            break
 
     return text_so_far
 
@@ -448,12 +483,12 @@ def prepare_llama_args(kwargs):
     return llama_args
 
 
-def tokenize(model, kwargs):
+def tokenize(model: llama_cpp.Llama, kwargs):
     """Initializes the model and tokenizes the text."""
     context_size = kwargs['context_size']
     target_num_tokens = kwargs['chunks'] * (context_size - 1)
 
-    input_text = generate_random_text(target_num_tokens, model).encode("utf-8")
+    input_text = generate_random_tokens(target_num_tokens, model).encode("utf-8")
     tokenized_text = model.tokenize(input_text)
 
     return tokenized_text
@@ -462,10 +497,7 @@ def tokenize(model, kwargs):
 def get_model_config(model_path):
     """
     Extract model configuration (hidden size, layers) from the model's config file or gguf metadata if available.
-    """
-    # Check if config.json exists
-    config_path = os.path.join(os.path.dirname(model_path), 'config.json')
-    
+    """    
     hidden_size = None
     num_layers = None
     model = None
@@ -482,7 +514,7 @@ def get_model_config(model_path):
         raise KeyError(f"Required key missing in gguf metadata: {e}")
     except Exception as e:
         logger.error(f"Failed to load metadata from gguf model: {e}")
-        raise RuntimeError("Failed to retrieve model configuration from config.json or gguf metadata.")
+        raise RuntimeError("Failed to retrieve model configuration from gguf metadata.")
     
     # Final check to ensure both values are set
     if hidden_size is None or num_layers is None:
@@ -493,6 +525,9 @@ def get_model_config(model_path):
 
 def create_trial(study: optuna.Study, batch_exponent_range, ubatch_exponent_range, default_n_batch=None, default_n_ubatch=None):
     if default_n_batch and default_n_ubatch:
+        if default_n_batch % default_n_ubatch != 0:
+            raise ValueError(f"default_n_batch ({default_n_batch}) must be divisible by default_n_ubatch ({default_n_ubatch})")
+
         # Set default batch sizes if provided
         n_batch = default_n_batch
         n_ubatch = default_n_ubatch
@@ -751,8 +786,9 @@ if __name__ == "__main__":
     parser.add_argument('--model', type=str, required=True, help='Path to the GGUF model file.')
     parser.add_argument('--context-size', type=int, required=True, help="The model's context size.")
 
-    # GPU layers
+    # Model-execution setup
     parser.add_argument('--n-gpu-layers', type=int, default=50, help='Number of layers to store in VRAM.')
+    parser.add_argument('--threads', type=int, default=max(1, os.cpu_count() - 1), help='Number of threads to use for parallel processing (default: system threads - 1)')
 
     # Model-specific flags
     parser.add_argument('--temp', type=float, default=0, help='Temperature (default: 0.0)')
@@ -769,7 +805,7 @@ if __name__ == "__main__":
     parser.add_argument('--mirostat', type=int, default=0, help='Use Mirostat sampling. (default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0)')
     parser.add_argument('--mirostat-lr', type=float, default=0.1, help='Mirostat learning rate, parameter eta (default: 0.1)')
     parser.add_argument('--mirostat-ent', type=float, default=5.0, help='Mirostat target entropy, parameter tau (default: 5.0)')
-    parser.add_argument('--threads', type=int, default=max(1, os.cpu_count() - 1), help='Number of threads to use for parallel processing (default: system threads - 1)')
+
     parser.add_argument('--max-trials', type=int, default=None, help='Number of trials to run (default: selected automatically)')
     parser.add_argument('--chunks', type=int, default=None, help='Number of chunks to process per trial (default: selected automatically)')
     parser.add_argument('--conform-to-imatrix', action='store_true', help='If true, the maximum batch size will be limited to the context_size of the model')
