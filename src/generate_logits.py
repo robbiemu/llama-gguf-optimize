@@ -9,6 +9,7 @@ import time
 
 from version import __version__
 from gguf_optimize_model_fns import estimate_model_precision
+from gguf_optimize_logging import setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,13 @@ def estimate_disk_size(total_chunks, context_size, vocab_size, precision):
     logger.info(f"Estimated total disk size (before compression): {estimated_total_disk_size:.2f} GB")
 
 
-def write_header(h5f, context_size, vocab_size):
+def write_header(h5f, context_size, vocab_size, total_chunks):
     """Writes metadata as attributes to the HDF5 file."""
     h5f.attrs['format'] = f"generate_logits_v{__version__}"
     h5f.attrs['n_ctx'] = context_size
     h5f.attrs['n_vocab'] = vocab_size
+    h5f.attrs['total_chunks'] = total_chunks
+
     logger.debug(f"Header written with context size: {context_size} and vocab size: {vocab_size}")
 
 
@@ -78,6 +81,7 @@ def create_processed_chunks_dataset(h5f, total_chunks):
     processed_chunks_dset[...] = False
 
     return processed_chunks_dset
+
 
 def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, precision, resume=False):
     """Creates and returns an HDF5 file and datasets for storing logits and processed chunk flags."""
@@ -107,7 +111,7 @@ def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, pre
         h5f = h5py.File(output_file, 'w')
 
         # Write the header to store metadata
-        write_header(h5f, context_size, vocab_size)
+        write_header(h5f, context_size, vocab_size, total_chunks)
 
         # Create the logits dataset
         dset = h5f.create_dataset(
@@ -119,13 +123,22 @@ def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, pre
             compression="gzip"
         )
 
+        # Create the freed chunks list dataset
+        freed_chunks_dset = h5f.create_dataset(
+            'freed_chunks',
+            shape=(0,),
+            dtype=np.int64,
+            maxshape=(None,),
+            chunks=True
+        )
+
         # Create the 'processed_chunks' dataset
         processed_chunks_dset = create_processed_chunks_dataset(h5f, total_chunks)
 
-    return h5f, dset, processed_chunks_dset
+    return h5f, dset, processed_chunks_dset, freed_chunks_dset
 
 
-def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
+def process_tokens_chunk(model, tokens_chunk, dset, chunk_index, freed_chunks_dset):
     """
     Processes a single chunk of tokens and captures timing for the full chunk processing.
     """
@@ -166,14 +179,21 @@ def process_tokens_chunk(model, tokens_chunk, dset, chunk_index):
     logit_count = model.n_tokens  # Directly using `n_tokens` instead of len(eval_logits)
     logger.debug(f"Logits shape {model.scores.shape} dtype {model.scores.dtype}")
 
-    # Iterate through `self.scores` in chunks, avoiding intermediate list creation
+    # Before the loop, check if there is a freed chunk to reuse
+    if freed_chunks_dset.size > 0:  # Reuse freed chunk
+        chunk_index = freed_chunks_dset[0]
+        freed_chunks_dset.resize(freed_chunks_dset.shape[0] - 1, axis=0)
+        logger.debug(f"Reusing freed chunk {chunk_index}")
+
+    # Proceed with the loop
     for i in range(0, logit_count, buffer_size):
-        # Access a batch of logits directly from `self.scores`
         logits_buffer = model.scores[i : i + buffer_size, :]
 
         # Check for NaNs in the current buffer
         if np.any(np.isnan(logits_buffer)):
-            logger.warning(f"NaN detected in logits at chunk {chunk_index}, batch starting at token index {i}.")
+            logger.warning(
+                f"NaN detected in logits at chunk {chunk_index}, batch starting at token index {i}."
+            )
             errors = 1
 
         # Write the buffered logits directly to HDF5 without converting to a list
@@ -228,7 +248,7 @@ def generate_logits_with_llama_cpp(**kwargs):
     # Load or tokenize tokens
     tokens_file = kwargs['dataset'] + '.tokens.npy'
     if os.path.exists(tokens_file):
-        tokens = np.load(tokens_file)
+        tokens = np.load(tokens_file).tolist()
         total_tokens = len(tokens)
         logger.info(f"Loaded precomputed tokens from {tokens_file}")
     else:
@@ -264,8 +284,7 @@ def generate_logits_with_llama_cpp(**kwargs):
         else estimate_model_precision(kwargs['model'])
 
     # Create HDF5 dataset
-
-    h5f, dset, processed_chunks_dset = create_hdf5_dataset(kwargs['output'], total_chunks, vocab_size, kwargs['context_size'], precision, resume=resume)
+    h5f, dset, processed_chunks_dset, freed_chunks_dset = create_hdf5_dataset(kwargs['output'], total_chunks, vocab_size, kwargs['context_size'], precision, resume=resume)
 
     try:
         total_chunks_processed = 0
@@ -282,7 +301,7 @@ def generate_logits_with_llama_cpp(**kwargs):
             tokens_chunk = tokens[start_index:end_index]
 
             # Process the chunk and collect timing information
-            timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
+            timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index, freed_chunks_dset)
             total_chunks_processed += 1
             errors += timing_info['errors']
 
@@ -359,7 +378,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args_dict = vars(args)
 
-    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
     logging.info(f"generate_logits starting (version {__version__})")
 
     generate_logits_with_llama_cpp(**args_dict)

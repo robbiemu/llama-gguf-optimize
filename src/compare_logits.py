@@ -8,6 +8,7 @@ from tdigest import TDigest
 from typing import Optional
 
 from version import __version__
+from gguf_optimize_logging import setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -195,7 +196,7 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
 
 if __name__ == '__main__':
     import argparse
-    
+        
     parser = argparse.ArgumentParser(description="Calculate KL-divergence between two logits HDF5 files.")
     parser.add_argument('baseline_file', type=str, help="Path to the baseline logits HDF5 file.")
     parser.add_argument('target_file', type=str, help="Path to the target logits HDF5 file.")
@@ -207,7 +208,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
     logging.info(f"compare_logits starting (version {__version__})")
 
     process_chunks(

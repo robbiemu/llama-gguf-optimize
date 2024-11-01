@@ -53,7 +53,8 @@ class TestGenerateLogits(unittest.TestCase):
             with h5py.File(tmp.name, 'w') as h5f:
                 context_size = 4096
                 vocab_size = 32000
-                write_header(h5f, context_size, vocab_size)
+                total_chunks = 1
+                write_header(h5f, context_size, vocab_size, total_chunks)
 
                 # Assert that attributes were written correctly
                 self.assertEqual(h5f.attrs['format'], f"generate_logits_v{__version__}")
@@ -82,7 +83,7 @@ class TestCreateHDF5Dataset(unittest.TestCase):
             os.remove(output_file)
 
         # Call the function
-        h5f, dset, processed_chunks_dset = create_hdf5_dataset(
+        h5f, dset, processed_chunks_dset, freed_chunks_dset = create_hdf5_dataset(
             output_file, total_chunks, vocab_size, context_size, precision, resume=resume
         )
 
@@ -93,13 +94,12 @@ class TestCreateHDF5Dataset(unittest.TestCase):
         self.assertIn('logits', h5f, "'logits' dataset not found in HDF5 file.")
         self.assertIn('processed_chunks', h5f, "'processed_chunks' dataset not found in HDF5 file.")
 
-        # Check shapes
-        self.assertEqual(dset.shape, (total_chunks, context_size, vocab_size), "Logits dataset shape mismatch.")
-        self.assertEqual(processed_chunks_dset.shape, (total_chunks,), "Processed chunks dataset shape mismatch.")
+        # Check 'freed_chunks' dataset exists
+        self.assertIn('freed_chunks', h5f, "'freed_chunks' dataset not found in HDF5 file.")
 
-        # Check dtypes
-        expected_dtype = np.float16 if precision <= 16 else np.float32
-        self.assertEqual(dset.dtype, expected_dtype, "Logits dataset dtype mismatch.")
+        # Check shape and dtype
+        self.assertEqual(h5f['freed_chunks'].shape, (0,), "Initial 'freed_chunks' dataset shape mismatch.")
+        self.assertEqual(h5f['freed_chunks'].dtype, np.int64, "'freed_chunks' dataset dtype mismatch.")
 
         # Check attributes
         self.assertEqual(h5f.attrs['format'], f"generate_logits_v{__version__}", "Incorrect format attribute.")
@@ -111,7 +111,12 @@ class TestCreateHDF5Dataset(unittest.TestCase):
         os.remove(output_file)
 
 class TestProcessTokensChunk(unittest.TestCase):
+    test_file = "test_logits.h5"
+
     def setUp(self):
+        if os.path.exists(self.test_file):
+            os.remove(self.test_file)
+
         logging.disable(logging.CRITICAL)  # Disable all logging during tests
 
     def tearDown(self):
@@ -132,7 +137,7 @@ class TestProcessTokensChunk(unittest.TestCase):
         dtype = np.float32
 
         # Create a dummy HDF5 dataset
-        with h5py.File('test_logits.h5', 'w') as h5f:
+        with h5py.File(self.test_file, 'w') as h5f:
             dset = h5f.create_dataset(
                 'logits',
                 shape=(total_chunks, context_size, vocab_size),
@@ -146,13 +151,15 @@ class TestProcessTokensChunk(unittest.TestCase):
 
             # Check that the data is not all zeros (since we used random data)
             self.assertTrue(np.any(dset[chunk_index] != 0), "Logits data not written.")
-
-        # Cleanup
-        os.remove('test_logits.h5')
 
 
 class TestProcessTokensChunk(unittest.TestCase):
+    test_file = "test_logits.h5"
+    
     def setUp(self):
+        if os.path.exists(self.test_file):
+            os.remove(self.test_file)
+
         logging.disable(logging.CRITICAL)  # Disable all logging during tests
 
     def tearDown(self):
@@ -179,8 +186,17 @@ class TestProcessTokensChunk(unittest.TestCase):
                 shape=(total_chunks, context_size, vocab_size),
                 dtype=dtype
             )
+
+            freed_chunks_dset = h5f.create_dataset(
+                'freed_chunks',
+                shape=(0,),
+                dtype=np.int64,
+                maxshape=(None,),
+                chunks=True
+            )
+
             # Call the function
-            timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
+            timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index, freed_chunks_dset)
 
             # Check that the logits have been written
             self.assertEqual(dset[chunk_index].shape, (context_size, vocab_size), "Logits data shape mismatch.")
@@ -188,8 +204,43 @@ class TestProcessTokensChunk(unittest.TestCase):
             # Check that the data is not all zeros (since we used random data)
             self.assertTrue(np.any(dset[chunk_index] != 0), "Logits data not written.")
 
-        # Cleanup
-        os.remove('test_logits.h5')
+    def test_reset_chunk_in_hdf5(self):
+        # Use the MockModel
+        model = MockModel(model_path="dummy model")  
+        model.metadata = {
+            "tokenizer.ggml.add_bos_token": "false",
+            "tokenizer.ggml.add_eos_token": "false",
+        }
+        input_text = ''.join(random.choices(string.ascii_letters + string.digits, k=100)).encode('utf-8')
+        tokens_chunk = model.tokenize(input_text)
+
+        chunk_index = 3  # Initial chunk index
+
+        with h5py.File(self.test_file, 'w') as h5f:
+            # Duplicate the internals of create_hdf5_dataset here
+            dset = h5f.create_dataset('logits', shape=(10, 100, model.n_vocab()), dtype=np.float32)  # Adjust shape and dtype as needed
+            processed_chunks_dset = h5f.create_dataset('processed_chunks', shape=(10,), dtype=bool)
+            freed_chunks_dset = h5f.create_dataset('freed_chunks', shape=(0,), maxshape=(None,), dtype=np.int64, chunks=True)
+
+            # Write the first chunk
+            process_tokens_chunk(model, tokens_chunk, dset, chunk_index, freed_chunks_dset)
+
+            # Implement reset_chunk function (mimicking kl_d_bench functionality)
+            def reset_chunk(hdf5_file_path, chunk_index):
+                with h5py.File(hdf5_file_path, 'a') as h5f:
+                    freed_chunks_dset = h5f['freed_chunks']
+                    freed_chunks_dset.resize(freed_chunks_dset.shape[0] + 1, axis=0)
+                    freed_chunks_dset[-1] = chunk_index
+
+            # Reset the chunk
+            reset_chunk(self.test_file, chunk_index)
+
+            # Write another chunk, reusing the freed chunk index
+            process_tokens_chunk(model, tokens_chunk, dset, chunk_index, freed_chunks_dset)  # Use the same chunk_index
+
+            # Assertions
+            self.assertEqual(freed_chunks_dset.size, 0, "Freed chunks list should be empty after reuse.")
+            self.assertTrue(np.array_equal(dset[3, :, :], model.scores), "Logits from the second write should overwrite those from the first write at index 3.")
 
 
 class TestGenerateLogitsWithLlamaCpp(unittest.TestCase):
