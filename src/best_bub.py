@@ -16,6 +16,7 @@ import torch
 
 from version import __version__
 from gguf_optimize_model_fns import estimate_model_precision
+from gguf_optimize_logging import setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -713,7 +714,7 @@ def initialize_batch_and_model_config(kwargs):
     """Initialize model config and estimate batch sizes."""
     model_size_gb = get_model_size_gb(kwargs['model'])
     hidden_size, num_layers, model = get_model_config(kwargs['model'])
-    precision_bits = estimate_model_precision(model=model)
+    precision_bits = estimate_model_precision(model_path=kwargs['model'], model=model)
     available_memory_gb = get_available_memory_gb()
 
     # Estimate the maximum batch size
@@ -820,7 +821,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args_dict = vars(args)
 
-    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
     logging.info(f"best_bub starting (version {__version__})")
 
     main(**args_dict)

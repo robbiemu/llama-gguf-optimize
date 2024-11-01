@@ -8,17 +8,17 @@ from version import __version__
 
 logger = logging.getLogger(__name__)
 
-
 def estimate_model_parameters(metadata):
-    # Extract relevant metadata values
-    vocab_size = metadata.get("llama.vocab_size")
-    embedding_length = metadata.get("llama.embedding_length")
-    feed_forward_length = metadata.get("llama.feed_forward_length")
-    num_layers = metadata.get("llama.block_count")
-
-    # Validate extracted values
-    if not all(isinstance(val, int) and val > 0 for val in [vocab_size, embedding_length, feed_forward_length, num_layers]):
-        logger.error("Missing or invalid metadata for parameter estimation.")
+    # Extract and validate metadata, converting to int if necessary
+    try:
+        vocab_size, embedding_length, feed_forward_length, num_layers = [
+            int(metadata.get(key)) for key in [
+                "llama.vocab_size", "llama.embedding_length", 
+                "llama.feed_forward_length", "llama.block_count"
+            ]
+        ]
+    except (TypeError, ValueError) as e:
+        logger.error(f"Invalid metadata for parameter estimation: {e}")
         return None
 
     # Embedding parameters
@@ -53,6 +53,7 @@ def estimate_model_precision(model_path=None, model=None):
         # Calculate bits per weight
         bits_per_weight = (file_size_bytes * 8) / num_params
         logger.info(f"Estimated Model Precision: {bits_per_weight} bits per weight")
+
         return bits_per_weight
 
     except FileNotFoundError:

@@ -9,6 +9,7 @@ import time
 
 from version import __version__
 from gguf_optimize_model_fns import estimate_model_precision
+from gguf_optimize_logging import setup_logging
 
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,13 @@ def estimate_disk_size(total_chunks, context_size, vocab_size, precision):
     logger.info(f"Estimated total disk size (before compression): {estimated_total_disk_size:.2f} GB")
 
 
-def write_header(h5f, context_size, vocab_size):
+def write_header(h5f, context_size, vocab_size, total_chunks):
     """Writes metadata as attributes to the HDF5 file."""
     h5f.attrs['format'] = f"generate_logits_v{__version__}"
     h5f.attrs['n_ctx'] = context_size
     h5f.attrs['n_vocab'] = vocab_size
+    h5f.attrs['total_chunks'] = total_chunks
+
     logger.debug(f"Header written with context size: {context_size} and vocab size: {vocab_size}")
 
 
@@ -107,7 +110,7 @@ def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, pre
         h5f = h5py.File(output_file, 'w')
 
         # Write the header to store metadata
-        write_header(h5f, context_size, vocab_size)
+        write_header(h5f, context_size, vocab_size, total_chunks)
 
         # Create the logits dataset
         dset = h5f.create_dataset(
@@ -279,10 +282,13 @@ def generate_logits_with_llama_cpp(**kwargs):
                 continue
             start_index = chunk_index * chunk_size
             end_index = min((chunk_index + 1) * chunk_size, total_tokens)
-            tokens_chunk = tokens[start_index:end_index]
+            
+            # Convert tokens_chunk to list for compatibility
+            tokens_chunk = tokens[start_index:end_index].tolist()
 
             # Process the chunk and collect timing information
             timing_info = process_tokens_chunk(model, tokens_chunk, dset, chunk_index)
+            # Continue processing...
             total_chunks_processed += 1
             errors += timing_info['errors']
 
@@ -359,7 +365,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args_dict = vars(args)
 
-    logger.setLevel(getattr(logging, args.verbosity.upper(), logging.INFO))
+    setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
     logging.info(f"generate_logits starting (version {__version__})")
 
     generate_logits_with_llama_cpp(**args_dict)
