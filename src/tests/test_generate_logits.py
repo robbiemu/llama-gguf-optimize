@@ -63,24 +63,28 @@ class TestGenerateLogits(unittest.TestCase):
 
 
 class TestCreateHDF5Dataset(unittest.TestCase):
+    test_logits_file = 'test_logits.h5'
+
     def setUp(self):
+        if os.path.exists(self.test_logits_file):
+            os.remove(self.test_logits_file)
+
         logging.disable(logging.CRITICAL)  # Disable all logging during tests
 
     def tearDown(self):
+        if os.path.exists(self.test_logits_file):
+            os.remove(self.test_logits_file)
+
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
 
     def test_create_hdf5_dataset(self):
         # Parameters
-        output_file = 'test_logits.h5'
+        output_file = self.test_logits_file
         total_chunks = 10
         vocab_size = 1000
         context_size = 128
         precision = 16
         resume = False
-
-        # Ensure output file does not exist
-        if os.path.exists(output_file):
-            os.remove(output_file)
 
         # Call the function
         h5f, dset, processed_chunks_dset, freed_chunks_dset = create_hdf5_dataset(
@@ -108,7 +112,6 @@ class TestCreateHDF5Dataset(unittest.TestCase):
 
         # Cleanup
         h5f.close()
-        os.remove(output_file)
 
 class TestProcessTokensChunk(unittest.TestCase):
     test_file = "test_logits.h5"
@@ -120,6 +123,9 @@ class TestProcessTokensChunk(unittest.TestCase):
         logging.disable(logging.CRITICAL)  # Disable all logging during tests
 
     def tearDown(self):
+        if os.path.exists(self.test_logits_file):
+            os.remove(self.test_logits_file)
+            
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
 
     def test_process_tokens_chunk(self):
@@ -163,6 +169,9 @@ class TestProcessTokensChunk(unittest.TestCase):
         logging.disable(logging.CRITICAL)  # Disable all logging during tests
 
     def tearDown(self):
+        if os.path.exists(self.test_file):
+            os.remove(self.test_file)
+
         logging.disable(logging.NOTSET)  # Re-enable logging after tests
 
     def test_process_tokens_chunk(self):
@@ -180,7 +189,7 @@ class TestProcessTokensChunk(unittest.TestCase):
         dtype = np.float32
 
         # Create a dummy HDF5 dataset
-        with h5py.File('test_logits.h5', 'w') as h5f:
+        with h5py.File(self.test_file, 'w') as h5f:
             dset = h5f.create_dataset(
                 'logits',
                 shape=(total_chunks, context_size, vocab_size),
