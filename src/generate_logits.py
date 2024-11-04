@@ -92,11 +92,26 @@ def create_hdf5_dataset(output_file, total_chunks, vocab_size, context_size, pre
 
         h5f = h5py.File(output_file, 'a')
         dset = h5f['logits']
+        
+        # Check or create 'processed_chunks' dataset
         if 'processed_chunks' in h5f:
             processed_chunks_dset = h5f['processed_chunks']
         else:
             logger.debug("Creating missing 'processed_chunks' dataset for resumable processing")
             processed_chunks_dset = create_processed_chunks_dataset(h5f, total_chunks)
+
+        # Check or create 'freed_chunks' dataset
+        if 'freed_chunks' in h5f:
+            freed_chunks_dset = h5f['freed_chunks']
+        else:
+            logger.debug("Creating missing 'freed_chunks' dataset for resumable processing")
+            freed_chunks_dset = h5f.create_dataset(
+                'freed_chunks',
+                shape=(0,),
+                dtype=np.int64,
+                maxshape=(None,),
+                chunks=True
+            )
     else:
         logger.debug(f"Creating HDF5 dataset with vocab_size: {vocab_size}")
 

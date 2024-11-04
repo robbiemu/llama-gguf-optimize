@@ -33,6 +33,12 @@ class KLFileStructure(BaseModel):
     overall: Optional[ChunkStats] = Field(description="Overall statistics across all chunks")
 
 
+def numpy_encoder(obj):
+    if isinstance(obj, np.float32):
+        return float(obj)
+    raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serializable')
+
+
 def kl_divergence(p, q):
     """Calculate the KL-divergence between two probability distributions."""
     return np.sum(rel_entr(p, q), axis=-1)
@@ -91,11 +97,11 @@ def check_output_file_conditions(output_path, from_chunk, to_chunk, clobber):
 
             # Perform additional checks on existing data
             if has_overall and not existing_chunks:
-                raise ValueError("Output file contains only 'overall' property without any chunk data. Use --clobber to start fresh.")
-            if existing_chunks and not has_overall:
-                raise ValueError("Output file contains partial chunk data without an 'overall' property. Use --clobber to start fresh or specify a valid range with --from and --to.")
+                raise ValueError(f"Output file contains only 'overall' property without any chunk data. Use --clobber to start fresh. (from {from_chunk}, to {to_chunk})")
+            if existing_chunks and not {'overall_sum', 'overall_sumsq', 'overall_min', 'overall_max', 'total_values'}.issubset(f_out.attrs):
+                raise ValueError(f"Output file contains partial chunk data without an 'overall' property. Use --clobber to start fresh or specify a valid range with --from and --to. (from {from_chunk}, to {to_chunk})")
             if existing_chunks and has_overall:
-                raise ValueError("Output file already contains completed data (chunks and 'overall' property). Use --clobber to start fresh.")
+                raise ValueError(f"Output file already contains completed data (chunks and 'overall' property). Use --clobber to start fresh. (from {from_chunk}, to {to_chunk})")
 
             # Check for contiguous chunks if `--from` is set
             if from_chunk is not None:
@@ -161,18 +167,20 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
             overall_max = max(overall_max, chunk_stats['Maximum'])
             total_values += len(kl_values)
 
-            del p_logits, q_logits, p, q, kl_values
+            # Save cumulative statistics for overall
+            f_out.attrs['overall_sum'] = overall_sum
+            f_out.attrs['overall_sumsq'] = overall_sumsq
+            f_out.attrs['overall_min'] = overall_min
+            f_out.attrs['overall_max'] = overall_max
+            f_out.attrs['total_values'] = total_values
 
-        # Save cumulative statistics for overall
-        f_out.attrs['overall_sum'] = overall_sum
-        f_out.attrs['overall_sumsq'] = overall_sumsq
-        f_out.attrs['overall_min'] = overall_min
-        f_out.attrs['overall_max'] = overall_max
-        f_out.attrs['total_values'] = total_values
+            del p_logits, q_logits, p, q, kl_values
 
         # Serialize TDigest using to_dict() and save in HDF5 as JSON-compatible data
         digest_dict = digest.to_dict()
-        f_out.attrs['digest'] = str(digest_dict)  # Convert dict to string for storage
+        f_out.attrs['digest'] = json.dumps(digest_dict, default=numpy_encoder)  # Convert dict to string for storage
+
+        print(f"TOTAL CHUNKS {total_chunks} (processed from {start_chunk}, to {end_chunk})")
 
         # Final overall statistics based on cumulative data
         if end_chunk == total_chunks:  # Only finalize if we're at the end
@@ -191,7 +199,8 @@ def process_chunks(baseline_path, target_path, output_path: Optional[str] = None
             print("\n===== Overall KL-divergence statistics =====")
             for key, value in overall_stats.items():
                 print(f"{key:8}: {value:.6f}")
-                f_out.attrs['overall'] = json.dumps(overall_stats)
+
+            f_out.attrs['overall'] = json.dumps(overall_stats, default=numpy_encoder)  
 
 
 if __name__ == '__main__':

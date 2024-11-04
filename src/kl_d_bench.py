@@ -6,6 +6,9 @@ from compare_logits import process_chunks
 from gguf_optimize_logging import setup_logging
 
 
+DEFAULT_BASELINE_LOGITS_FILE = 'baseline_logits.h5'
+DEFAULT_TARGET_LOGITS_FILE = 'target_logits.h5'
+
 def reset_chunk_in_hdf5(hdf5_file_path, chunk_index):
     """
     Adds the chunk index to the freed chunks list instead of zeroing out data.
@@ -29,7 +32,7 @@ def generate_logits_for_model(generate_args, chunk_index):
     """
     generate_args_chunk = generate_args.copy()
     generate_args_chunk['from_chunk'] = chunk_index
-    generate_args_chunk['to_chunk'] = chunk_index
+    generate_args_chunk['to_chunk'] = chunk_index + 1
     generate_args_chunk['clobber'] = chunk_index == 0  # Overwrite for first chunk
     logging.info(f"Generating logits for model, chunk {chunk_index}")
     generate_logits_with_llama_cpp(**generate_args_chunk)
@@ -41,7 +44,7 @@ def compare_logits_for_chunk(compare_args, chunk_index):
     """
     compare_args['from_chunk'] = chunk_index
     compare_args['to_chunk'] = chunk_index + 1
-    compare_args['clobber'] = False  # Append to cumulative KL-divergence file
+    compare_args['clobber'] = chunk_index == 0  # Append to cumulative KL-divergence file
     logging.info(f"Comparing logits for chunk {chunk_index}")
     process_chunks(**compare_args)
 
@@ -50,6 +53,12 @@ def process_generate_both(args, total_chunks, generate_args_baseline, generate_a
     """
     Process when both logits files need to be generated.
     """
+    # Set output file names from args
+    generate_args_baseline = generate_args_baseline.copy()
+    generate_args_target = generate_args_target.copy()
+    generate_args_baseline['output'] = args.baseline_logits_output
+    generate_args_target['output'] = args.target_logits_output
+
     logging.info("Neither logits file is supplied. Generating both baseline and target logits.")
 
     for chunk_index in range(total_chunks):
@@ -64,14 +73,22 @@ def process_generate_both(args, total_chunks, generate_args_baseline, generate_a
 
         # Reset previous chunk data in generated logits files
         if chunk_index > 0:
-            reset_chunk_in_hdf5(generate_args_baseline['output'], chunk_index - 1)
-            reset_chunk_in_hdf5(generate_args_target['output'], chunk_index - 1)
+            reset_chunk_in_hdf5(args.baseline_logits_output, chunk_index - 1)
+            reset_chunk_in_hdf5(args.target_logits_output, chunk_index - 1)
 
 
 def process_generate_one(args, total_chunks, generate_args_baseline, generate_args_target, compare_args):
     """
     Process when one logits file is supplied and the other needs to be generated.
     """
+    # Copy and assign the output file name as needed
+    generate_args_baseline = generate_args_baseline.copy()
+    generate_args_target = generate_args_target.copy()
+    if not args.baseline_logits:
+        generate_args_baseline['output'] = args.baseline_logits_output
+    if not args.target_logits:
+        generate_args_target['output'] = args.target_logits_output
+
     logging.info("One logits file is supplied. Generating the missing logits.")
 
     for chunk_index in range(total_chunks):
@@ -89,9 +106,9 @@ def process_generate_one(args, total_chunks, generate_args_baseline, generate_ar
         # Reset previous chunk data in generated logits files
         if chunk_index > 0:
             if not args.baseline_logits:
-                reset_chunk_in_hdf5(generate_args_baseline['output'], chunk_index - 1)
+                reset_chunk_in_hdf5(args.baseline_logits_output, chunk_index - 1)
             if not args.target_logits:
-                reset_chunk_in_hdf5(generate_args_target['output'], chunk_index - 1)
+                reset_chunk_in_hdf5(args.target_logits_output, chunk_index - 1)
 
 
 def process_generate_neither(args, total_chunks, compare_args):
@@ -112,8 +129,8 @@ def main(args):
 
     # Initialize compare_args
     compare_args = {
-        'baseline_path': args.baseline_logits or 'baseline_logits.h5',
-        'target_path': args.target_logits or 'target_logits.h5',
+        'baseline_path': args.baseline_logits or args.baseline_logits_output or DEFAULT_BASELINE_LOGITS_FILE,
+        'target_path': args.target_logits or args.target_logits_output or DEFAULT_TARGET_LOGITS_FILE,
         'output_path': args.output_file  # KL-divergence cumulative file
     }
 
@@ -147,7 +164,7 @@ def main(args):
             'temp': args.temp,
             'seed': args.seed,
             'verbosity': args.verbosity,
-            'output': 'baseline_logits.h5'
+            'output': DEFAULT_BASELINE_LOGITS_FILE
         }
 
     if not target_logits_supplied:
@@ -176,7 +193,7 @@ def main(args):
             'temp': args.temp,
             'seed': args.seed,
             'verbosity': args.verbosity,
-            'output': 'target_logits.h5'
+            'output': DEFAULT_TARGET_LOGITS_FILE
         }
 
     # Determine total_chunks and vocab_size
@@ -215,15 +232,19 @@ if __name__ == '__main__':
 
     baseline_group = parser.add_argument_group("Baseline parameters")
     baseline_required = baseline_group.add_mutually_exclusive_group(required=True)
-    baseline_required.add_argument('--baseline_model', type=str, help='Path to the baseline GGUF model file.')
-    baseline_required.add_argument('--baseline_logits', type=str, help='Path to the baseline logits HDF5 file.')
+    baseline_required.add_argument('--baseline-model', type=str, help='Path to the baseline GGUF model file.')
+    baseline_required.add_argument('--baseline-logits', type=str, help='Path to the baseline logits HDF5 file.')
+    baseline_group.add_argument('--baseline-logits-output', type=str, default=DEFAULT_BASELINE_LOGITS_FILE,
+        help=f"Output file for baseline logits when generating from model (default: {DEFAULT_BASELINE_LOGITS_FILE})")
     target_group = parser.add_argument_group("Target parameters")
     target_required = target_group.add_mutually_exclusive_group(required=True)
-    target_required.add_argument('--target_model', type=str, help='Path to the target GGUF model file.')
-    target_required.add_argument('--target_logits', type=str, help='Path to the target logits HDF5 file.')
+    target_required.add_argument('--target-model', type=str, help='Path to the target GGUF model file.')
+    target_required.add_argument('--target-logits', type=str, help='Path to the target logits HDF5 file.')
+    target_group.add_argument('--target-logits-output', type=str, default=DEFAULT_BASELINE_LOGITS_FILE,
+        help=f"Output file for target logits when generating from model (default: {DEFAULT_BASELINE_LOGITS_FILE})")
     parser.add_argument('--dataset', type=str, help='Path to the dataset.txt file.')
 
-    parser.add_argument('--output_file', type=str, default='kl_divergence_overall.h5', help='Cumulative HDF5 output file for KL-divergence statistics.')
+    parser.add_argument('--output-file', type=str, default='kl_divergence_overall.h5', help='Cumulative HDF5 output file for KL-divergence statistics.')
     parser.add_argument('--from-chunk', type=int, default=0, help="Starting chunk index for processing")
     parser.add_argument('--to-chunk', type=int, help="Ending chunk index for processing (exclusive)")
     parser.add_argument('--clobber', action='store_true', help="Overwrite existing output file")
@@ -245,9 +266,9 @@ if __name__ == '__main__':
     parser.add_argument('--mirostat', type=int, default=0, help='Mirostat sampling mode')
     parser.add_argument('--mirostat-lr', type=float, default=0.1, help='Mirostat learning rate')
     parser.add_argument('--mirostat-ent', type=float, default=5.0, help='Mirostat target entropy')
-    parser.add_argument('--top-p', type=float, default=1.0, help='Top-p sampling threshold')
+    parser.add_argument('--top-p', type=float, default=0, help='Top-p sampling threshold')
     parser.add_argument('--top-k', type=int, default=1, help='Top-k sampling threshold')
-    parser.add_argument('--temp', type=float, default=1.0, help='Sampling temperature')
+    parser.add_argument('--temp', type=float, default=0, help='Sampling temperature')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     parser.add_argument('--verbosity', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help="Set the logging verbosity level (default: INFO)")
@@ -258,6 +279,12 @@ if __name__ == '__main__':
         raise ValueError("Either both baseline and target logits files must be provided, or --dataset must be specified.")
     if args.baseline_logits and args.target_logits and args.dataset:
         raise ValueError("If both baseline and target logits files are provided, --dataset should not be specified.")
+
+    # Validation for mutually exclusive file output arguments
+    if args.baseline_logits and args.baseline_logits_output:
+        parser.error("Cannot use --baseline-logits-output when --baseline_logits is set.")
+    if args.target_logits and args.target_logits_output:
+        parser.error("Cannot use --target-logits-output when --target_logits is set.")
 
     setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
 
