@@ -42,8 +42,6 @@
 
 ##  Overview
 
-<video src='assets/usage-guide.notebooklm.webm' width=180/>
-
 **Llama-gguf-optimize** is the result of work and research in creating high-quality quantizations for multilingual models, specifically the [salamandra](https://hf.co/collections/BSC-LT/salamandra-66fc171485944df79469043a) series. With a focus on preserving language diversity, the project leverages [llama.cpp](/ggerganov/llama.cpp)’s importance matrix approach to minimize quantization loss across distinct language domains. Existing importance matrices often lack even basic multilingual support, so this toolkit includes tools and scripts to generate custom importance matrices and refined quantizations, tailored for datasets beyond common sources like WikiText. While initially addressing quantization needs for 2B models, **llama-gguf-optimize** has grown into a broader resource, providing insights and tools for other researchers facing similar challenges.
 
 It currently contains new scripts to help analyze dataset performace in i-matrix based qunatization, the notes [on_kl-divergence-optimization.md](on_kl-divergence-optimization.md) which summarize various discussions on llama.cpp regarding imatrices, as well a [Iterative Quantization and Comparison](USAGE.md) usage guide, which will eventually detail the main flows envisioned for this project and current details the primary one. It also contains the original notes used to help inform my search to create these datasets, and the Jupyter notebooks that were used to generate the datasets and the quantized models. These notes are in some cases incorrect, but will eventually be updated with later insights. The notebooks will be generalized into scripts to help others in the process, regardless of the datasets they are using.
@@ -56,6 +54,7 @@ The [generate_logits.py](src/generate_logits.py) script is a specialized tool de
 
 The [compare_logits.py](src/compare_logits.py) script is a specialized tool for comparing sets of logits on a chunk-by-chunk basis, providing detailed KL-divergence metrics essential for quantization analysis. By calculating statistics such as median, standard deviation, and specific percentiles (e.g., 90th, 95th, 99th) for each chunk, it highlights outliers where quantization diverges most from baseline. These metrics, stored in an HDF5 format for efficient storage and resumability, can support the evaluation and calibration of quantization quality, particularly for fine-tuning dataset importance.
 
+[usage-guide.notebooklm.webm](https://github.com/user-attachments/assets/592dbda7-38ff-4dba-bc97-539a211acd43)
 
 ---
 
