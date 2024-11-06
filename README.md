@@ -23,6 +23,11 @@
 
 <br>
 
+<audio controls>
+  <source src="assets/usage-guide.notebooklm.wav" type="audio/wav">
+  Your browser does not support the audio element.
+</audio>
+
 #####  Table of Contents
 
 - [Overview](#overview)
@@ -80,6 +85,7 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 └── /
     ├── LICENSE.md
     ├── README.md
+    ├── USAGE.md
     ├── assets
     │   └── llama-gguf-optimize.png
     ├── bub_execution_flow.md
