@@ -178,7 +178,7 @@ Here’s a draft for the revised "Getting Started" section that integrates the s
 
 ### Usage
 
-**note: There is a [usage guide](USAGE:md)!**
+**note: There is a [usage guide](USAGE.md)!**
 
 Each script in llama-gguf-optimize can be run independently, offering a range of model optimization, logit generation, and comparison capabilities:
 
