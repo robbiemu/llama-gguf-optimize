@@ -23,8 +23,6 @@
 
 <br>
 
-[usage-guide](assets/usage-guide.notebooklm.webm)
-
 #####  Table of Contents
 
 - [Overview](#overview)
@@ -43,6 +41,8 @@
 ---
 
 ##  Overview
+
+<video src='assets/usage-guide.notebooklm.webm' width=180/>
 
 **Llama-gguf-optimize** is the result of work and research in creating high-quality quantizations for multilingual models, specifically the [salamandra](https://hf.co/collections/BSC-LT/salamandra-66fc171485944df79469043a) series. With a focus on preserving language diversity, the project leverages [llama.cpp](/ggerganov/llama.cpp)’s importance matrix approach to minimize quantization loss across distinct language domains. Existing importance matrices often lack even basic multilingual support, so this toolkit includes tools and scripts to generate custom importance matrices and refined quantizations, tailored for datasets beyond common sources like WikiText. While initially addressing quantization needs for 2B models, **llama-gguf-optimize** has grown into a broader resource, providing insights and tools for other researchers facing similar challenges.
 
