@@ -18,7 +18,9 @@
   <img src="https://img.shields.io/badge/YAML-CB171E.svg?style=default&logo=YAML&logoColor=white" alt="YAML">
   <img src="https://img.shields.io/badge/SciPy-8CAAE6.svg?style=default&logo=SciPy&logoColor=white" alt="SciPy">
   <img src="https://img.shields.io/badge/Python-3776AB.svg?style=default&logo=Python&logoColor=white" alt="Python">
+  <img src="assets/optuna_logo_and_brandname.png" style="height: 20px; border-radius: 3pt;" alt="Optuna">
   <img src="https://img.shields.io/badge/NumPy-013243.svg?style=default&logo=NumPy&logoColor=white" alt="NumPy">
+
 </p>
 
 <br>
@@ -46,6 +48,10 @@
 
 It currently contains new scripts to help analyze dataset performace in i-matrix based qunatization, the notes [on_kl-divergence-optimization.md](on_kl-divergence-optimization.md) which summarize various discussions on llama.cpp regarding imatrices, as well a [Iterative Quantization and Comparison](USAGE.md) usage guide, which will eventually detail the main flows envisioned for this project and current details the primary one. It also contains the original notes used to help inform my search to create these datasets, and the Jupyter notebooks that were used to generate the datasets and the quantized models. These notes are in some cases incorrect, but will eventually be updated with later insights. The notebooks will be generalized into scripts to help others in the process, regardless of the datasets they are using.
 
+The [imatrix_dataset.py](src/imatrix_dataset.py) script provides functionalities for dataset sampling and matrix generation for specific domains in (huggingface) datasets, for example languages. It can be customized via plugins in the `src/imatrix_dataset` directory, enabling flexible integration with various data sources. This script complements the quantization process by generating importance matrices that optimize models for specific languages and contexts.
+
+The [quantize.py](src/quantize.py) script facilitates the quantization of Large Language Models (LLMs) using  _llama.cpp_'s quantization tools. It provides a streamlined way to quantize models with various options, including specifying the quantization type, output directory, and base model. It also allows for perplexity measurement and summarization to assess the impact of quantization on model performance. This script is particularly useful for researchers and developers aiming to optimize LLMs for deployment in resource-constrained environments.
+
 The [best_bub.py](src/best_bub.py) script is a performance optimization tool developed to fine-tune batch (`--batch`) and ubatch (`--ubatch`) parameters for logit generation processes in _llama.cpp_, such as those in _llama-perplexity_ or _llama-imatrix_. Using a fully Bayesian approach, this script explores runtime configurations tailored to your model’s context size and available memory resources, achieving notable time savings over default configurations (with a 33% improvement observed in the author's case). `best_bub.py` employs [Optuna](https://optuna.org)’s _TPESampler_ for intelligent sampling and incorporates Bayesian metrics and a _MedianPruner_ to refine trial evaluations based on runtime performance trends. This approach ensures optimal parameter selection while adapting to real-time memory constraints and model-specific behavior.
 
 The [kl_d_bench.py](src/kl_d_bench.py) script coordinates the generation and comparison of logits across models, running through the dataset one chunk at a time. By handling each chunk sequentially, it keeps storage needs low—requiring only enough space for the current and previous chunks—while ensuring consistency and smooth progress. `kl_d_bench.py` can easily pause and pick up where it left off. Though currently optimized for single-chunk processing, future updates could allow multi-chunk handling.
@@ -71,53 +77,19 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 | ⚡️  | **Performance**   | Optimized for performance and memory usage, and detailed logging configurations that can dynamically adjust based on runtime needs (`gguf_optimize_logging.py`). |
 | 🛡️ | **Security**       | No explicit security measures are mentioned, but the use of versioning and static type checking enhance maintainability and reliability, indirectly supporting secure code practices. |
 | 🔗  | **Dependencies**   | Managed through `pyproject.toml` and available in `requirements.txt`, including PyTorch for deep learning tasks, NumPy for numerical computation, HDF5 for dataset handling, and Optuna for optimization tasks. |
-```
-
----
-
-##  Repository Structure
-
-```sh
-└── /
-    ├── LICENSE.md
-    ├── README.md
-    ├── USAGE.md
-    ├── assets
-    │   └── llama-gguf-optimize.png
-    ├── bub_execution_flow.md
-    ├── on_kl-divergence-optimization.md
-    ├── on_perplexity.md
-    ├── on_quantization.md
-    ├── pyproject.toml
-    ├── quantizations.yaml
-    ├── readme-ai.md
-    ├── requirements.txt
-    ├── src
-    │   ├── best_bub.py
-    │   ├── compare_logits.py
-    │   ├── generate_logits.py
-    │   ├── gguf_optimize_logging.py
-    │   ├── gguf_optimize_model_fns.py
-    │   ├── imatrix_dataset.ipynb
-    │   ├── kl_d_bench.py
-    │   ├── library.py
-    │   ├── quantize.ipynb
-    │   ├── tests
-    │   └── version.py
-    └── uv.lock
-```
 
 ---
 
 ##  Modules
 
-<details closed><summary>.</summary>
+<details closed><summary>[root]</summary>
 
 | File | Summary |
 | --- | --- |
 | [requirements.txt](requirements.txt) | Lists essential external libraries ensuring consistent development environment across different setups. Highlights dependencies crucial for model optimization and data processing, supporting repositorys focus on advanced quantization techniques and optimization benchmarks. |
 | [pyproject.toml](pyproject.toml) | Defines project metadata and dependencies for llama-gguf-optimize, ensuring compatible Python version and listing essential packages for machine learning tasks. Streamlines building and managing project versions with Hatch tooling support. |
-| [quantizations.yaml](quantizations.yaml) | (A dependency of the quantization notebook) Lists available quantization methods for model optimization, detailing their sizes, perplexity impacts, and types, essential for configuring efficient machine learning model storage and inference within the repositorys framework. |
+| [imatrix.ipynb](imatrix.ipynb) | The Jupyter notebook for sampling data for i-matrix generation, originally at `src/imatrix.ipynb` but now located in the root directory. This notebook is generalized into the `imatrix.py` script. |
+| [quantize.ipynb](quantize.ipynb) | This code file is an original part of a repository focused on optimizing models, particularly for quantization. |
 
 </details>
 
@@ -130,25 +102,13 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 | [compare_logits.py](src/compare_logits.py) | Script compares KL-divergence between two HDF5 files containing softmax logits from machine learning models. Calculates statistics per chunk, updates cumulative overall stats, and saves results to an output file. Supports processing specific chunks and logging verbosity levels. |
 | [gguf_optimize_model_fns.py](src/gguf_optimize_model_fns.py) | Estimates model parameters and precision for optimization within repository architecture. Utilizes metadata for parameter estimation and calculates bits per weight to assess model efficiency, logging critical information for debugging and verification. |
 | [best_bub.py](src/best_bub.py) | The primary purpose of `best_bub.py` is to automate the search for the best possible `--batch` and `--ubatch` configuration (dubbed BUB within the context) that maximizes performance (inference speed). **Critical Features:**-**Parameter Tuning:** It uses tools like Optuna for hyperparameter optimization to explore different configurations of the models.-**Performance Evaluation:** Integrates with `llama_cpp` and other scientific computing libraries to evaluate how well each configuration performs on specific tasks.-**Efficiency Optimization:** Incorporates multiprocessing capabilities to distribute parameter tuning across multiple processes, enhancing computational efficiency.Overall, `best_bub.py` serves as a key component for efficiently optimizing model configurations to achieve the best performance in terms of speed and accuracy. |
-| [quantize.ipynb](src/quantize.ipynb) | This code file is part of a repository focused on optimizing models, particularly for quantization. |
++| [quantize.py](src/quantize.py) | This script facilitates the quantization of Large Language Models (LLMs) using  `llama.cpp`'s quantization tools. It provides a streamlined way to quantize models with various options, including specifying the quantization type, output directory, and base model. It also allows for perplexity measurement and summarization to assess the impact of quantization on model performance. This script is particularly useful for researchers and developers aiming to optimize LLMs for deployment in resource-constrained environments. |
 | [generate_logits.py](src/generate_logits.py) | The `generate_logits.py` script generates logits from a model, over a dataset, for further analysis and optimization.**Key Features-**Logit Generation: It generates logits from a given model output, enabling subsequent optimizations and comparisons.-**Integration with Repository Goals By creating detailed model outputs, it supports the repository’s aim to enhance model performance through various optimization techniques such as quantization and KL-divergence analysis. |
 | [gguf_optimize_logging.py](src/gguf_optimize_logging.py) | Configures logging for library operations, setting up message formats and output levels to standard out, facilitating consistent logging across modules with versioning information included in debug mode outputs. |
-| [imatrix_dataset.ipynb](src/imatrix_dataset.ipynb) | This notebook contains code to sample data from a dataset for generating an imatrix, in this case specifically targeting certain languages. |
+| [imatrix_dataset.py](src/imatrix_dataset.py) | A Python script that generalizes and automates the data sampling process for specific domains. It integrates plugin support (in `src/imatrix_dataset`) for handling different data sources, allowing for flexible dataset sampling and importance matrix generation. |
 | [kl_d_bench.py](src/kl_d_bench.py) | Orchestrates processing a dataset to generate and compare model logits, manages dataset input, ensures mutually exclusive options, validates parameters, sets logging level, and executes main function. Validates presence of necessary arguments and prevents conflicting options. |
 
 </details>
-
-<details closed><summary>src.llama_gguf_optimize</summary>
-
-| File | Summary |
-| --- | --- |
-| [py.typed](src/llama_gguf_optimize/py.typed) | Enables static type checking for llama_gguf_optimize module, enhancing code reliability and maintainability within parent repositorys architecture focused on optimization and quantization techniques for machine learning models. |
-
-</details>
-
----
-
-Here’s a draft for the revised "Getting Started" section that integrates the specific commands and usage details for each script:
 
 ---
 
@@ -181,6 +141,29 @@ Here’s a draft for the revised "Getting Started" section that integrates the s
 **note: There is a [usage guide](USAGE.md)!**
 
 Each script in llama-gguf-optimize can be run independently, offering a range of model optimization, logit generation, and comparison capabilities:
+
+- **Data Sampling for Importance Matrix with `imatrix.py`**  
+  The `imatrix.py` script generalizes the data sampling process, enabling the generation of importance matrices for specific languages. It supports custom data sources through plugins in `src/imatrix_dataset`.
+
+  ```sh
+  ❯ uv run src/imatrix.py --langs <languages> --num-samples <samples_count> --skip-samples <skip_count> --output <output_file>
+  ```
+
+  Additional options:
+  ```sh
+  ❯ uv run src/imatrix.py --help
+  ```
+
+- **Model quantization and perplexity analysis with `quantize.py`**
+  ```sh
+  ❯ uv run src/quantize.py quantize --model-name <model_name> --base-model <path_to_model> --config <config_file>
+  ```
+
+  To measure perplexity:
+  ```sh
+  ❯ uv run src/quantize.py perplexity --base-model-name <model_name> --config <config_file> --dataset <ppl_test_data>
+  ```
+  See all options with: `❯ uv run src/quantize.py --help`
 
 - **Optimize Batch Sizes with `best_bub.py`**  
   Run the `best_bub.py` script to optimize batch (`--batch`) and ubatch (`--ubatch`) parameters:
@@ -240,8 +223,8 @@ Execute the full test suite using:
 - [X] **`v0.1`**: <strike>best_bub.py script.</strike>
 - [X] **`v0.3`**: <strike>generation and comparison scripts.</strike>
 - [X] **`v0.5`**: <strike>kl-divergence comparison script.</strike>
-- [ ] **`v0.5.n`**: Usage guides.
-- [ ] **`v0.6`**: Convert jupyter notebooks to general scripts.
+- [X] **`v0.5.n`**: Usage guides.
+- [X] **`v0.6`**: Convert jupyter notebooks to general scripts.
 - [ ] **`v1.0`**: PyPl submission, github actions, changelog.
 ---
 
