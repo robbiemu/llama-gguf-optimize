@@ -35,6 +35,7 @@ def estimate_model_parameters(metadata):
 
 
 def estimate_model_precision(model_path=None, model=None):
+    """ DEPRECATED v0.5.3 """
     try:
         if model is None:
             with open(os.devnull, 'w') as f_null, contextlib.redirect_stderr(f_null), contextlib.redirect_stdout(f_null):

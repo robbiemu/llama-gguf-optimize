@@ -1,6 +1,6 @@
 from datasets import load_dataset
 import logging
-from plugin_base import DataSourcePluginBase
+from imatrix_dataset.plugin_base import DataSourcePluginBase
 
 
 logger = logging.getLogger(__name__)
