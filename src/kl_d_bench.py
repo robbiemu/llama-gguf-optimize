@@ -1,10 +1,16 @@
 import h5py
 import logging
+import numpy as np
 
-from generate_logits import generate_logits_with_llama_cpp
+from generate_logits import (
+    generate_logits_with_llama_cpp, get_model, tokenize_dataset, 
+    calculate_total_chunks, H5PY_SUPPORTED_COMPRESSIONS
+)
 from compare_logits import process_chunks
 from gguf_optimize_logging import setup_logging
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BASELINE_LOGITS_FILE = 'baseline_logits.h5'
 DEFAULT_TARGET_LOGITS_FILE = 'target_logits.h5'
@@ -17,13 +23,13 @@ def reset_chunk_in_hdf5(hdf5_file_path, chunk_index):
         if 'freed_chunks' not in h5f:
             # Create the dataset if it doesn't exist
             h5f.create_dataset('freed_chunks', data=[chunk_index], maxshape=(None,), dtype='int64')
-            logging.info(f"Created 'freed_chunks' dataset and added chunk {chunk_index} in {hdf5_file_path}.")
+            logger.info(f"Created 'freed_chunks' dataset and added chunk {chunk_index} in {hdf5_file_path}.")
         else:
             # Append the chunk index to the freed chunks list
             freed_chunks_dset = h5f['freed_chunks']
-            freed_chunks_dset.resize(freed_chunks_dset.shape[0] + 1, axis=0)
+            freed_chunks_dset.resize((freed_chunks_dset.shape[0] + 1,))
             freed_chunks_dset[-1] = chunk_index
-            logging.info(f"Added chunk {chunk_index} to freed chunks list in {hdf5_file_path}.")
+            logger.info(f"Added chunk {chunk_index} to freed chunks list in {hdf5_file_path}.")
 
 
 def generate_logits_for_model(generate_args, chunk_index):
@@ -32,9 +38,9 @@ def generate_logits_for_model(generate_args, chunk_index):
     """
     generate_args_chunk = generate_args.copy()
     generate_args_chunk['from_chunk'] = chunk_index
-    generate_args_chunk['to_chunk'] = chunk_index + 1
-    generate_args_chunk['clobber'] = chunk_index == 0  # Overwrite for first chunk
-    logging.info(f"Generating logits for model, chunk {chunk_index}")
+    generate_args_chunk['to_chunk'] = chunk_index
+    generate_args_chunk['clobber'] = args.clobber or chunk_index == 0 
+    logger.info(f"Generating logits for model, chunk {chunk_index}")
     generate_logits_with_llama_cpp(**generate_args_chunk)
 
 
@@ -43,9 +49,9 @@ def compare_logits_for_chunk(compare_args, chunk_index):
     Compares logits for a single chunk using the provided arguments.
     """
     compare_args['from_chunk'] = chunk_index
-    compare_args['to_chunk'] = chunk_index + 1
-    compare_args['clobber'] = chunk_index == 0  # Append to cumulative KL-divergence file
-    logging.info(f"Comparing logits for chunk {chunk_index}")
+    compare_args['to_chunk'] = chunk_index
+    compare_args['clobber'] = args.clobber or chunk_index == 0 
+    logger.info(f"Comparing logits for chunk {chunk_index}")
     process_chunks(**compare_args)
 
 
@@ -59,10 +65,10 @@ def process_generate_both(args, total_chunks, generate_args_baseline, generate_a
     generate_args_baseline['output'] = args.baseline_logits_output
     generate_args_target['output'] = args.target_logits_output
 
-    logging.info("Neither logits file is supplied. Generating both baseline and target logits.")
-
-    for chunk_index in range(total_chunks):
-        logging.info(f"Processing chunk {chunk_index}")
+    logger.info("Neither logits file is supplied. Generating both baseline and target logits.")
+    end = total_chunks if args.to_chunk is None else args.to_chunk
+    for chunk_index in range(args.from_chunk, end):
+        logger.info(f"Processing chunk {chunk_index}")
 
         # Generate logits for baseline and target models
         generate_logits_for_model(generate_args_baseline, chunk_index)
@@ -86,13 +92,14 @@ def process_generate_one(args, total_chunks, generate_args_baseline, generate_ar
     generate_args_target = generate_args_target.copy()
     if not args.baseline_logits:
         generate_args_baseline['output'] = args.baseline_logits_output
+        logger.info("Baseline logits file is not supplied. Generating the missing logits.")
     if not args.target_logits:
         generate_args_target['output'] = args.target_logits_output
+        logger.info("Target logits file is not supplied. Generating the missing logits.")
 
-    logging.info("One logits file is supplied. Generating the missing logits.")
-
-    for chunk_index in range(total_chunks):
-        logging.info(f"Processing chunk {chunk_index}")
+    end = total_chunks if args.to_chunk is None else args.to_chunk
+    for chunk_index in range(args.from_chunk, end):
+        logger.info(f"Processing chunk {chunk_index}")
 
         # Generate logits as needed
         if not args.baseline_logits:
@@ -115,10 +122,10 @@ def process_generate_neither(args, total_chunks, compare_args):
     """
     Process when both logits files are supplied and only comparison is needed.
     """
-    logging.info("Both baseline and target logits files are supplied. Proceeding to compare directly.")
-
-    for chunk_index in range(total_chunks):
-        logging.info(f"Comparing logits for chunk {chunk_index}")
+    logger.info("Both baseline and target logits files are supplied. Proceeding to compare directly.")
+    end = total_chunks if args.to_chunk is None else args.to_chunk
+    for chunk_index in range(args.from_chunk, end):
+        logger.info(f"Comparing logits for chunk {chunk_index}")
         compare_logits_for_chunk(compare_args, chunk_index)
 
 
@@ -131,6 +138,8 @@ def main(args):
     compare_args = {
         'baseline_path': args.baseline_logits or args.baseline_logits_output or DEFAULT_BASELINE_LOGITS_FILE,
         'target_path': args.target_logits or args.target_logits_output or DEFAULT_TARGET_LOGITS_FILE,
+        'precision': args.kld_precision,
+        'parts': args.parts,
         'output_path': args.output_file  # KL-divergence cumulative file
     }
 
@@ -147,7 +156,8 @@ def main(args):
             'threads': args.threads,
             'batch_size': args.batch_size,
             'ubatch_size': args.ubatch_size,
-            'precision': args.precision,
+            'precision': args.model_precision,
+            'compression': args.compression,
             'clobber': False,
             'rope_freq_base': args.rope_freq_base,
             'repeat_last_n': args.repeat_last_n,
@@ -176,7 +186,8 @@ def main(args):
             'threads': args.threads,
             'batch_size': args.batch_size,
             'ubatch_size': args.ubatch_size,
-            'precision': args.precision,
+            'precision': args.model_precision,
+            'compression': args.compression,
             'clobber': False,
             'rope_freq_base': args.rope_freq_base,
             'repeat_last_n': args.repeat_last_n,
@@ -205,13 +216,12 @@ def main(args):
             total_chunks = h5f.attrs['total_chunks']
     else:
         # Neither logits file is supplied; generate the first chunk to get total_chunks
-        logging.info("Generating first chunk to determine total number of chunks.")
-        generate_args_first_chunk = generate_args_baseline.copy()
-        generate_args_first_chunk.update({'from_chunk': 0, 'to_chunk': 0, 'clobber': True})
-        generate_logits_with_llama_cpp(**generate_args_first_chunk)
-        with h5py.File(generate_args_first_chunk['output'], 'r') as h5f:
-            total_chunks = h5f.attrs['total_chunks']
-        logging.info(f"Total chunks to process: {total_chunks}")
+        logger.info("Determining total number of chunks.")
+        model = get_model(**generate_args_baseline)
+        _tokens, total_tokens = tokenize_dataset(model, generate_args_baseline['dataset'])
+        total_chunks = calculate_total_chunks(total_tokens, generate_args_baseline['context_size'], model)
+
+        logger.info(f"Total chunks to process: {total_chunks}")
 
     # Decide which processing function to call based on supplied arguments
     if not baseline_logits_supplied and not target_logits_supplied:
@@ -221,7 +231,7 @@ def main(args):
     else:
         process_generate_neither(args, total_chunks, compare_args)
 
-    logging.info(f"Completed processing {total_chunks} chunks.\nCumulative statistics stored in {args.output_file}.")
+    logger.info(f"Completed processing {total_chunks} chunks.\nCumulative statistics stored in {args.output_file}.")
 
 
 if __name__ == '__main__':
@@ -234,17 +244,17 @@ if __name__ == '__main__':
     baseline_required = baseline_group.add_mutually_exclusive_group(required=True)
     baseline_required.add_argument('--baseline-model', type=str, help='Path to the baseline GGUF model file.')
     baseline_required.add_argument('--baseline-logits', type=str, help='Path to the baseline logits HDF5 file.')
-    baseline_group.add_argument('--baseline-logits-output', type=str, default=DEFAULT_BASELINE_LOGITS_FILE,
+    baseline_group.add_argument('--baseline-logits-output', type=str, default=None,
         help=f"Output file for baseline logits when generating from model (default: {DEFAULT_BASELINE_LOGITS_FILE})")
     target_group = parser.add_argument_group("Target parameters")
     target_required = target_group.add_mutually_exclusive_group(required=True)
     target_required.add_argument('--target-model', type=str, help='Path to the target GGUF model file.')
     target_required.add_argument('--target-logits', type=str, help='Path to the target logits HDF5 file.')
-    target_group.add_argument('--target-logits-output', type=str, default=DEFAULT_BASELINE_LOGITS_FILE,
+    target_group.add_argument('--target-logits-output', type=str, default=None,
         help=f"Output file for target logits when generating from model (default: {DEFAULT_BASELINE_LOGITS_FILE})")
     parser.add_argument('--dataset', type=str, help='Path to the dataset.txt file.')
 
-    parser.add_argument('--output-file', type=str, default='kl_divergence_overall.h5', help='Cumulative HDF5 output file for KL-divergence statistics.')
+    parser.add_argument('--output-file', type=str, default='kl_divergence.h5', help='Cumulative HDF5 output file for KL-divergence statistics.')
     parser.add_argument('--from-chunk', type=int, default=0, help="Starting chunk index for processing")
     parser.add_argument('--to-chunk', type=int, help="Ending chunk index for processing (exclusive)")
     parser.add_argument('--clobber', action='store_true', help="Overwrite existing output file")
@@ -252,9 +262,12 @@ if __name__ == '__main__':
     parser.add_argument('--n-gpu-layers', type=int, help='Number of layers to store in VRAM.')
     parser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel processing')
     parser.add_argument('--context-size', type=int, default=2048, help="The model's context size.")
-    parser.add_argument('--batch-size', type=int, default=2048, help='Logical maximum batch size')
-    parser.add_argument('--ubatch-size', type=int, default=512, help='Physical maximum batch size')
-    parser.add_argument('--precision', type=int, choices=[16,32], default=16, help='Model weight and activation precision')
+    parser.add_argument('--batch-size', type=int, help='Logical maximum batch size (default: context size)')
+    parser.add_argument('--ubatch-size', type=int, help='Physical maximum batch size (default: context size)')
+    parser.add_argument('--model-precision', type=int, choices=[16,32], default=32, help='Model\'s activation precision (default: 32) note: currently llama.cpp only supports fp32 for processing the output weights, so this will be fp32')
+    parser.add_argument('--kld-precision', type=int, choices=[32,64], default=None, help='Precision for calculating kl-divergence (default: twice model precision) note: memory intensive')
+    parser.add_argument('--compression', type=str, choices=H5PY_SUPPORTED_COMPRESSIONS.keys(), default=None, help='Compression method to use for the output logits file. (Default: None)')
+    parser.add_argument('--parts', type=int, default=1, help="Number of parts to split each chunk into for processing.")
 
     parser.add_argument('--rope-freq-base', type=float, help='ROPE frequency base')
     parser.add_argument('--repeat-last-n', type=int, default=64, help='Last n tokens for repeat penalty')
@@ -285,6 +298,20 @@ if __name__ == '__main__':
         parser.error("Cannot use --baseline-logits-output when --baseline_logits is set.")
     if args.target_logits and args.target_logits_output:
         parser.error("Cannot use --target-logits-output when --target_logits is set.")
+
+    if args.baseline_logits_output is None:
+        args.baseline_logits_output = DEFAULT_BASELINE_LOGITS_FILE
+
+    if args.target_logits_output is None:
+        args.target_logits_output = DEFAULT_TARGET_LOGITS_FILE
+
+    if args.batch_size is None:
+        logger.debug("Setting batch size to context size: %s", args.context_size)
+        args.batch_size = args.context_size
+    if args.ubatch_size is None:
+        logger.debug("Setting μbatch size to context size: %s", args.context_size)
+        args.ubatch_size = args.context_size
+
 
     setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
 
