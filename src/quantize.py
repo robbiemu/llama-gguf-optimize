@@ -110,8 +110,8 @@ def quantize(args, quantizations):
                 command_parts.append(f"--{param.replace('_', '-')}")
                 command_parts.append(str(value))
 
-        if args.imatrix_path:
-            command_parts.append(f"--imatrix {args.imatrix_path}")
+        if args.imatrix:
+            command_parts.append(f"--imatrix {args.imatrix}")
         if args.use_leave_output_tensor:
             command_parts.append("--leave-output-tensor")
 
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-name", type=str, required=True, help="Name of the model.")
     parser.add_argument("--base-model", type=str, help="Path to the base model file.")
 
-    parser.add_argument("--imatrix-path", type=str, help="Path to the importance matrix file.")
+    parser.add_argument("--imatrix", type=str, help="Path to the importance matrix file.")
     parser.add_argument("--use-leave-output-tensor", action="store_true", help="Use the --leave-output-tensor flag.")
 
     parser.add_argument("--dataset", type=str, default="ppl_test_data.txt", help="Path to the perplexity test data file.")

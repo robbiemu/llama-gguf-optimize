@@ -341,7 +341,7 @@ if __name__ == "__main__":
     parser.add_argument("--datasource-plugin", type=str, required=True, help="Path to the data source plugin file.")
     parser.add_argument("--plugin-class", type=str, default="DataSourcePlugin", help="Class name of the data source plugin.")
     parser.add_argument("--num-samples", type=int, default=200, help="Number of samples to load.")
-    parser.add_argument("--skip-samples", type=int, default=1000, help="Number of samples to skip.")
+    parser.add_argument("--skip-samples", type=int, default=0, help="Number of samples to skip.")
     parser.add_argument("--langs", type=str, nargs='*', help="Specify languages as a space-separated list.")
     parser.add_argument("--config", type=str, help="Path to configuration file for loading languages")
     parser.add_argument("--write-raw-samples", action="store_true", help="Write raw language samples to files if this flag is set.")

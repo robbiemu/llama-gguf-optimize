@@ -6,13 +6,16 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "astropy~=6.1.6",
     "datasets~=3.0.2",
     "h5py~=3.12.1",
     "llama-cpp-python~=0.3.1",
+    "matplotlib~=3.9.2",
     "numpy~=2.1.2",
     "optuna~=4.0.0",
     "psutil~=6.1.0",
     "pydantic~=2.9.2",
+    "pyqt5~=5.15.11",
     "pyyaml~=6.0.2",
     "scipy~=1.14.1",
     "tdigest~=0.5.2.2",
@@ -22,6 +25,9 @@ dynamic = ["version"]
 
 [tool.hatch.version]
 path = "src/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "src.imatrix_dataset", "src.tests"]
 
 [build-system]
 requires = ["hatchling"]

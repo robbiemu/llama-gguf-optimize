@@ -2,7 +2,7 @@
   <img src="assets/llama-gguf-optimize.png" width="40%" alt="<code>❯ llama-gguf-optimize</code>-logo">
 </p>
 <p align="center">
-    <h1 align="center"><code>❯ llama-gguf-optimize v0.5</code></h1>
+    <h1 align="center"><code>❯ llama-gguf-optimize v0.6</code></h1>
 </p>
 <p align="center">
     <em>Optimize. Quantize. Perfect the Efficiency.</em>
@@ -29,6 +29,8 @@
 
 - [Overview](#overview)
 - [Features](#features)
+  - [Compare logits script:](#compare-logits-script)
+    - [Core Features](#core-features)
 - [Modules](#modules)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -52,7 +54,7 @@ The [imatrix_dataset.py](src/imatrix_dataset.py) script provides functionalities
 
 The [quantize.py](src/quantize.py) script facilitates the quantization of Large Language Models (LLMs) using  _llama.cpp_'s quantization tools. It provides a streamlined way to quantize models with various options, including specifying the quantization type, output directory, and base model. It also allows for perplexity measurement and summarization to assess the impact of quantization on model performance. This script is particularly useful for researchers and developers aiming to optimize LLMs for deployment in resource-constrained environments.
 
-The [best_bub.py](src/best_bub.py) script is a performance optimization tool developed to fine-tune batch (`--batch`) and ubatch (`--ubatch`) parameters for logit generation processes in _llama.cpp_, such as those in _llama-perplexity_ or _llama-imatrix_. Using a fully Bayesian approach, this script explores runtime configurations tailored to your model’s context size and available memory resources, achieving notable time savings over default configurations (with a 33% improvement observed in the author's case). `best_bub.py` employs [Optuna](https://optuna.org)’s _TPESampler_ for intelligent sampling and incorporates Bayesian metrics and a _MedianPruner_ to refine trial evaluations based on runtime performance trends. This approach ensures optimal parameter selection while adapting to real-time memory constraints and model-specific behavior.
+The [best_bub.py](src/extras/best_bub.py) script is a performance optimization tool developed to fine-tune batch (`--batch`) and ubatch (`--ubatch`) parameters for logit generation processes in _llama.cpp_, such as those in _llama-perplexity_ or _llama-imatrix_. Using a fully Bayesian approach, this script explores runtime configurations tailored to your model’s context size and available memory resources, achieving notable time savings over default configurations (with a 33% improvement observed in the author's case). `best_bub.py` employs [Optuna](https://optuna.org)’s _TPESampler_ for intelligent sampling and incorporates Bayesian metrics and a _MedianPruner_ to refine trial evaluations based on runtime performance trends. This approach ensures optimal parameter selection while adapting to real-time memory constraints and model-specific behavior.
 
 The [kl_d_bench.py](src/kl_d_bench.py) script coordinates the generation and comparison of logits across models, running through the dataset one chunk at a time. By handling each chunk sequentially, it keeps storage needs low—requiring only enough space for the current and previous chunks—while ensuring consistency and smooth progress. `kl_d_bench.py` can easily pause and pick up where it left off. Though currently optimized for single-chunk processing, future updates could allow multi-chunk handling.
 
@@ -69,7 +71,7 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 |    |   Feature         | Description |
 |----|-------------------|---------------------------------------------------------------|
 | ⚙️  | **Architecture**  | The project utilizes a modular src directory with various scripts for quantization, model optimization, and logging. It adheres to Python best practices and leverages external libraries for machine learning tasks. |
-| 🔩 | **Code Quality**   | (Continually improving towards) High-quality code maintained through static type checking (`py.typed`), documentation within files such as `src/quantize.ipynb`, and consistent use of tools like Optuna and PyTorch for optimization and model execution. |
+| 🔩 | **Code Quality**   | (Continually improving towards) High-quality code maintained through static type checking (`py.typed`), documentation, and consistent use of tools like Optuna and PyTorch for optimization and model execution. |
 | 📄 | **Documentation**  | Comprehensive documentation is available, as well as configuration details in `pyproject.toml` and `requirements.txt`. Additional markdown files provide insights into the repository's goals and methodologies, enhancing user understanding. |
 | 🔌 | **Integrations**   | Key integrations with machine learning libraries (PyTorch, NumPy), optimization tools (Optuna), and data handling modules (HDF5). External dependencies are well-managed and specified in `requirements.txt`. |
 | 🧩 | **Modularity**     | The codebase is highly modular, with functionalities split into different scripts within the src directory. Core functions for quantization and logging are separated into dedicated files (`library.py`, `gguf_optimize_logging.py`), enhancing reuse. |
@@ -77,6 +79,27 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 | ⚡️  | **Performance**   | Optimized for performance and memory usage, and detailed logging configurations that can dynamically adjust based on runtime needs (`gguf_optimize_logging.py`). |
 | 🛡️ | **Security**       | No explicit security measures are mentioned, but the use of versioning and static type checking enhance maintainability and reliability, indirectly supporting secure code practices. |
 | 🔗  | **Dependencies**   | Managed through `pyproject.toml` and available in `requirements.txt`, including PyTorch for deep learning tasks, NumPy for numerical computation, HDF5 for dataset handling, and Optuna for optimization tasks. |
+
+### Compare logits script:
+
+The `compare_logits.py` script calculates KL-divergence between two models' logits to evaluate differences in their predictions. This analysis supports model comparison and benchmarking, especially in the context of quantization. 
+
+#### Core Features
+
+- **Chunk-wise KL-Divergence Analysis**:
+  - Computes KL-divergence with numerical stability through log-softmax probabilities.
+  - Supports chunk-based processing for large datasets.
+
+- **Early Stopping**:
+  - Dynamically estimates the minimum dataset size needed for robust comparisons.
+  - Employs Bayesian prior updates and Beta distribution modeling to determine stopping points.
+  - Uses the Kuiper test to assess the statistical significance of observed differences.
+
+- **Efficient and Resumable**:
+  - Resumable processing with support for specifying a starting chunk.
+  - Outputs chunk-specific and cumulative statistics in HDF5 format for detailed analysis.
+
+For a detailed explanation of the methodology and statistical foundations, see the [compare_logits_specification.md](compare_logits_specification.md) document.
 
 ---
 
@@ -88,8 +111,6 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 | --- | --- |
 | [requirements.txt](requirements.txt) | Lists essential external libraries ensuring consistent development environment across different setups. Highlights dependencies crucial for model optimization and data processing, supporting repositorys focus on advanced quantization techniques and optimization benchmarks. |
 | [pyproject.toml](pyproject.toml) | Defines project metadata and dependencies for llama-gguf-optimize, ensuring compatible Python version and listing essential packages for machine learning tasks. Streamlines building and managing project versions with Hatch tooling support. |
-| [imatrix.ipynb](imatrix.ipynb) | The Jupyter notebook for sampling data for i-matrix generation, originally at `src/imatrix.ipynb` but now located in the root directory. This notebook is generalized into the `imatrix.py` script. |
-| [quantize.ipynb](quantize.ipynb) | This code file is an original part of a repository focused on optimizing models, particularly for quantization. |
 
 </details>
 
@@ -99,14 +120,28 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 | --- | --- |
 | [version.py](src/version.py) | Defines version for package management. |
 | [library.py](src/library.py) | Custom __library__ tag used in Python packages to indicate the source of the library, facilitating easy identification and tracking of dependencies within the repositorys ecosystem. |
-| [compare_logits.py](src/compare_logits.py) | Script compares KL-divergence between two HDF5 files containing softmax logits from machine learning models. Calculates statistics per chunk, updates cumulative overall stats, and saves results to an output file. Supports processing specific chunks and logging verbosity levels. |
+| [compare_logits.py](src/compare_logits.py) | Compares logits from two models using KL-divergence. Processes data in chunks with resumability, detailed statistical outputs, and optional early stopping to optimize comparisons. |
 | [gguf_optimize_model_fns.py](src/gguf_optimize_model_fns.py) | Estimates model parameters and precision for optimization within repository architecture. Utilizes metadata for parameter estimation and calculates bits per weight to assess model efficiency, logging critical information for debugging and verification. |
-| [best_bub.py](src/best_bub.py) | The primary purpose of `best_bub.py` is to automate the search for the best possible `--batch` and `--ubatch` configuration (dubbed BUB within the context) that maximizes performance (inference speed). **Critical Features:**-**Parameter Tuning:** It uses tools like Optuna for hyperparameter optimization to explore different configurations of the models.-**Performance Evaluation:** Integrates with `llama_cpp` and other scientific computing libraries to evaluate how well each configuration performs on specific tasks.-**Efficiency Optimization:** Incorporates multiprocessing capabilities to distribute parameter tuning across multiple processes, enhancing computational efficiency.Overall, `best_bub.py` serves as a key component for efficiently optimizing model configurations to achieve the best performance in terms of speed and accuracy. |
 +| [quantize.py](src/quantize.py) | This script facilitates the quantization of Large Language Models (LLMs) using  `llama.cpp`'s quantization tools. It provides a streamlined way to quantize models with various options, including specifying the quantization type, output directory, and base model. It also allows for perplexity measurement and summarization to assess the impact of quantization on model performance. This script is particularly useful for researchers and developers aiming to optimize LLMs for deployment in resource-constrained environments. |
-| [generate_logits.py](src/generate_logits.py) | The `generate_logits.py` script generates logits from a model, over a dataset, for further analysis and optimization.**Key Features-**Logit Generation: It generates logits from a given model output, enabling subsequent optimizations and comparisons.-**Integration with Repository Goals By creating detailed model outputs, it supports the repository’s aim to enhance model performance through various optimization techniques such as quantization and KL-divergence analysis. |
+| [generate_logits.py](src/generate_logits.py) | Generates and stores logits from a model over a dataset in HDF5 format. Supports resumability, context size verification, compression, and enhanced token processing. |
 | [gguf_optimize_logging.py](src/gguf_optimize_logging.py) | Configures logging for library operations, setting up message formats and output levels to standard out, facilitating consistent logging across modules with versioning information included in debug mode outputs. |
-| [imatrix_dataset.py](src/imatrix_dataset.py) | A Python script that generalizes and automates the data sampling process for specific domains. It integrates plugin support (in `src/imatrix_dataset`) for handling different data sources, allowing for flexible dataset sampling and importance matrix generation. |
+| [imatrix_dataset.py](src/imatrix_dataset.py) | Manages dataset sampling and i-matrix generation with enhanced token balancing, chunking, and optional shuffling. It integrates plugin support (in `src/imatrix_dataset`) for handling different data sources, allowing for flexible dataset sampling and importance matrix generation. |
 | [kl_d_bench.py](src/kl_d_bench.py) | Orchestrates processing a dataset to generate and compare model logits, manages dataset input, ensures mutually exclusive options, validates parameters, sets logging level, and executes main function. Validates presence of necessary arguments and prevents conflicting options. |
+
+</details>
+
+<details closed><summary>src/extras</summary>
+
+| File | Summary |
+|------|---------|
+| [analyze_comparison_progress_from_logs.py](src/extras/analyze_comparison_progress_from_logs.py) | Visualizes early stopping factors and projects progress when analyzing logs from `compare_logits.py` runs. Can export raw data or maintain a live update of graphs. |
+| [append_overall.py](src/extras/append_overall.py)      | Helper script to compute and add the "overall" property to a comparison output file when interrupted or incomplete. |
+| [best_bub.py](src/extras/best_bub.py) | The primary purpose of `best_bub.py` is to automate the search for the best possible `--batch` and `--ubatch` configuration (dubbed BUB within the context) that maximizes performance (inference speed). **Critical Features:**-**Parameter Tuning:** It uses tools like Optuna for hyperparameter optimization to explore different configurations of the models.-**Performance Evaluation:** Integrates with `llama_cpp` and other scientific computing libraries to evaluate how well each configuration performs on specific tasks.-**Efficiency Optimization:** Incorporates multiprocessing capabilities to distribute parameter tuning across multiple processes, enhancing computational efficiency.Overall, `best_bub.py` serves as a key component for efficiently optimizing model configurations to achieve the best performance in terms of speed and accuracy. |
+| [composite_comparsion.py](src/extras/composite_comparsion.py) | (Archetypal script)Evaluates multiple comparisons (and quantizations) with a suggested metric. Provides chunk-by-chunk scores, overall KL-divergence curves, and a 3D manifold visualization. |
+| [read_kl_d_benchmarks.py](src/extras/read_kl_d_benchmarks.py) | Extracts and displays KL-divergence statistics from comparison HDF5 files, optionally filtering by chunk range or including overall metrics. |
+| [reshape_logits.py](src/extras/reshape_logits.py)      | Reshapes large logit chunks into smaller, evenly divided chunks, useful for experimenting with settings over many chunks. |
+| [unfree.py](src/extras/unfree.py)                      | Resets the `freed_chunks` dataset in HDF5 logit files, allowing interrupted processes to resume cleanly. |
+| [visualize_results.py](src/extras/visualize_results.py) | Visualizes chunk-by-chunk KL-divergence outputs from a comparison as 3D manifolds, with options for debugging and sampling. |
 
 </details>
 
@@ -142,16 +177,16 @@ The [compare_logits.py](src/compare_logits.py) script is a specialized tool for 
 
 Each script in llama-gguf-optimize can be run independently, offering a range of model optimization, logit generation, and comparison capabilities:
 
-- **Data Sampling for Importance Matrix with `imatrix.py`**  
-  The `imatrix.py` script generalizes the data sampling process, enabling the generation of importance matrices for specific languages. It supports custom data sources through plugins in `src/imatrix_dataset`.
+- **Data Sampling for Importance Matrix with `imatrix_dataset.py`**  
+  The `imatrix_dataset.py` script generalizes the data sampling process, enabling the generation of importance matrices for specific languages. It supports custom data sources through plugins in `src/imatrix_dataset`.
 
   ```sh
-  ❯ uv run src/imatrix.py --langs <languages> --num-samples <samples_count> --skip-samples <skip_count> --output <output_file>
+  ❯ uv run src/imatrix_dataset.py --langs <languages> --num-samples <samples_count> --skip-samples <skip_count> --output <output_file>
   ```
 
   Additional options:
   ```sh
-  ❯ uv run src/imatrix.py --help
+  ❯ uv run src/imatrix_dataset.py --help
   ```
 
 - **Model quantization and perplexity analysis with `quantize.py`**
@@ -168,12 +203,12 @@ Each script in llama-gguf-optimize can be run independently, offering a range of
 - **Optimize Batch Sizes with `best_bub.py`**  
   Run the `best_bub.py` script to optimize batch (`--batch`) and ubatch (`--ubatch`) parameters:
   ```sh
-  ❯ uv run src/best_bub.py --model <path_to_model> --context-size <size> [optional model parameters]...
+  ❯ uv run src/extras/best_bub.py --model <path_to_model> --context-size <size> [optional model parameters]...
   ```
 
   For a full list of options, see:
   ```sh
-  ❯ uv run src/best_bub.py --help
+  ❯ uv run src/extras/best_bub.py --help
   ```
 
 - **Generate Logits with `generate_logits.py`**  
@@ -181,6 +216,7 @@ Each script in llama-gguf-optimize can be run independently, offering a range of
   ```sh
   ❯ uv run src/generate_logits.py --model <path_to_model> --dataset <path_to_dataset> --output <output_file>
   ```
+  Resumable processing is supported, with chunk management, informed by calculated context size and token requirements.
 
   For additional options:
   ```sh
@@ -223,8 +259,10 @@ Execute the full test suite using:
 - [X] **`v0.1`**: <strike>best_bub.py script.</strike>
 - [X] **`v0.3`**: <strike>generation and comparison scripts.</strike>
 - [X] **`v0.5`**: <strike>kl-divergence comparison script.</strike>
-- [X] **`v0.5.n`**: Usage guides.
-- [X] **`v0.6`**: Convert jupyter notebooks to general scripts.
+- [X] **`v0.5.n`**: Usage guides. Convert jupyter notebooks to general scripts.
+- [X] **`v0.6`**: Add early stopping prediction capability to compare_logits.
+- [] **`v0.6.n`**:  Audit and update: [on_perplexity.md](on_perplexity.md) for citations and accuracy.
+- [] **`v0.7`**: Allow specifying `ema-decay`, and clamp values for $\theta_E$ and$\theta_P$ in early stopping.
 - [ ] **`v1.0`**: PyPl submission, github actions, changelog.
 ---
 

@@ -40,7 +40,7 @@ Among the available KL-divergence values, **median, KLD_95, and KLD_90** emerged
 
 Through our analysis, we focused on these three metrics, as lower values across them indicate a quantized model that more accurately reflects the original, minimizing significant divergence and stabilizing general output quality.
 
-### Data Analysis: Comparing Context Sizes to Determine the Native Context
+### Data Analysis: Comparing Alternate Context Sizes to the Native Context
 
 With these metrics in mind, we assessed KL-divergence results across the four context sizes to pinpoint the context with the lowest scores, thus identifying the native context. Below are the key values for each context size, with the **4096 context size used as the basis for comparison** since it demonstrated the lowest KL-divergence across all metrics:
 
@@ -65,7 +65,7 @@ The **native context size of 4096** achieves the lowest KL-divergence values acr
 
 ## 2. Dataset Selection for iMatrix Calibration
 
-NExt we looked at the model's performance with real-world application data, emphasizing sections where quantization is most likely to introduce error. Here, we discussed the initial choice of a general-purpose dataset of psuedo-random data ("groups_merged.txt") and the subsequent move to Wikitext for analyzing high-divergence sections.
+Next we looked at the model's performance with real-world application data, emphasizing sections where quantization is most likely to introduce error. Here, we discussed the initial choice of a general-purpose dataset of psuedo-random data ("groups_merged.txt") and the subsequent move to Wikitext for analyzing high-divergence sections.
 
 In comparing diverse datasets, one member of the conversation noted that Wikitext data had higher KL-divergence scores on average than groups_merged.txt, suggesting that Wikitext’s lower entropy may introduce more challenging sections for the model to predict accurately after quantization. This revelation led to targeted chunk selection in the dataset, aiming to include high-divergence segments in the iMatrix to strengthen the model's quantization resilience specifically in these areas.
 

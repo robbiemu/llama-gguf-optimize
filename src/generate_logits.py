@@ -13,6 +13,7 @@ from gguf_optimize_logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
+SKIPPED_GENERATION = "skipped"
 TARGET_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 H5PY_SUPPORTED_COMPRESSIONS = {
     'gzip': {'level': 4},  # Default is 4, range is 0 (no compression) to 9 (maximum compression)
@@ -76,15 +77,6 @@ def prepare_call_args(kwargs):
     call_args = {k: v for k, v in call_args.items() if v is not None}
     
     return call_args
-
-
-def estimate_disk_size(total_chunks, context_size, vocab_size, precision):
-    """Estimates the total disk size based on number of chunks and vocab size."""
-    bytes_per_logit = max(2, precision // 8)  # float32 is 4 bytes
-    # One logit vector per chunk
-    total_bytes = total_chunks * context_size * vocab_size * bytes_per_logit
-    estimated_total_disk_size = total_bytes / (1024 ** 3)  # Convert to GB
-    logger.info(f"Estimated total disk size (before compression): {estimated_total_disk_size:.2f} GB")
 
 
 def verify_model_context_size(model, sample_text="This is a test.", padding=2):
@@ -574,6 +566,7 @@ def generate_logits_with_llama_cpp(**kwargs):
     # Final logging
     if total_chunks_processed == 0:
         logger.info("No new chunks were processed. All chunks in the specified range have been processed.")
+        return SKIPPED_GENERATION
     else:
         print("") # ensure INFO starts on a new line after the [chunk number] <duration>
         logger.info(f"Processed {total_chunks_processed} chunks")
@@ -611,7 +604,11 @@ if __name__ == "__main__":
     parser.add_argument('--mirostat', type=int, default=0, help='Use Mirostat sampling. (default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0)')
     parser.add_argument('--mirostat-lr', type=float, default=0.1, help='Mirostat learning rate, parameter eta (default: 0.1)')
     parser.add_argument('--mirostat-ent', type=float, default=5.0, help='Mirostat target entropy, parameter tau (default: 5.0)')
-
+    parser.add_argument('--top-p', type=float, default=0, help='Top-p sampling threshold')
+    parser.add_argument('--top-k', type=int, default=1, help='Top-k sampling threshold')
+    parser.add_argument('--temp', type=float, default=0, help='Sampling temperature')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    
     parser.add_argument(
         '--verbosity',
         type=str,
