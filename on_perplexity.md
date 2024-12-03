@@ -14,6 +14,9 @@ In the XTREME benchmark, English uses **10,000 samples**, while each of the **40
 
 2. **Scale based on number of languages**: For datasets with many languages (e.g., 40+), consider reducing the number of samples per language to **50-100**, as is done in benchmarks like XTREME.
 
+#### Addendum
+
+An early stopping metric was designed and tested with the salamandra 2b model, for use in maasuring the quality of quantizations vy way of kl-divergence. We found in our dataset that 48 chunks (roughly 11.5k tokens/125 samples per language) was sufficient to capture variability in the dataset at 95% confidence using a bayesian approximation.
 
 ---
 

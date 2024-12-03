@@ -9,10 +9,11 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch, call
 
 from mock_model import MockModel
-import best_bub
+import extras.best_bub as best_bub
+from extras.best_bub import execute_trials
 
 
-logger = logging.getLogger("best_bub")
+logger = logging.getLogger("extras.best_bub")
 
 class TestInitializeBatchAndModelConfig(unittest.TestCase):
     def setUp(self):
@@ -206,11 +207,11 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         max_batch_size = best_bub.estimate_max_batch_size(model_size_gb, hidden_size, num_layers, precision_bits, sequence_length, available_memory_gb)
         self.assertEqual(max_batch_size, expected_max_batch_size)
 
-    @patch('best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
-    @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
-    @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
-    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
-    @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
+    @patch('extras.best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
+    @patch('extras.best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
+    @patch('extras.best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
+    @patch('extras.best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
+    @patch('extras.best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
     def test_initialize_batch_and_model_config_lower_context(
             self, 
             mock_get_model_size_gb, 
@@ -233,11 +234,11 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         self.assertEqual(batch_exponent_range, best_bub.ExponentRange(min=4, max=9))
         self.assertEqual(ubatch_exponent_range, best_bub.ExponentRange(min=1, max=9))
 
-    @patch('best_bub.estimate_max_batch_size', return_value=2**9)  # Expect max_batch_size = 1024
-    @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
-    @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
-    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
-    @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
+    @patch('extras.best_bub.estimate_max_batch_size', return_value=2**9)  # Expect max_batch_size = 1024
+    @patch('extras.best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
+    @patch('extras.best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
+    @patch('extras.best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
+    @patch('extras.best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
     def test_initialize_batch_and_model_config_lower_max_batch(
             self, 
             mock_get_model_size_gb, 
@@ -260,11 +261,11 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         self.assertEqual(batch_exponent_range, best_bub.ExponentRange(min=4, max=9))
         self.assertEqual(ubatch_exponent_range, best_bub.ExponentRange(min=1, max=9))
 
-    @patch('best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
-    @patch('best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
-    @patch('best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
-    @patch('best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
-    @patch('best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
+    @patch('extras.best_bub.estimate_max_batch_size', return_value=2**10)  # Expect max_batch_size = 1024
+    @patch('extras.best_bub.get_available_memory_gb', return_value=16)  # Assume 16 GB available
+    @patch('extras.best_bub.estimate_model_precision', return_value=16)  # Assume 16-bit precision
+    @patch('extras.best_bub.get_model_config', return_value=(1024, 32, None))  # Assume hidden_size=1024, num_layers=32
+    @patch('extras.best_bub.get_model_size_gb', return_value=4)  # Assume 4 GB model size
     def test_initialize_batch_and_model_config_equal_max_batch_and_context(
             self, 
             mock_get_model_size_gb, 
@@ -288,9 +289,9 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         self.assertEqual(ubatch_exponent_range, best_bub.ExponentRange(min=1, max=10))
 
     @patch('llama_cpp.Llama')  # Replace llama_cpp.Llama directly with MockModel
-    @patch('best_bub.get_model_size_gb', return_value=4)
-    @patch('best_bub.get_available_memory_gb', return_value=16)
-    @patch('best_bub.estimate_model_precision', return_value=16)
+    @patch('extras.best_bub.get_model_size_gb', return_value=4)
+    @patch('extras.best_bub.get_available_memory_gb', return_value=16)
+    @patch('extras.best_bub.estimate_model_precision', return_value=16)
     def test_initialize_batch_with_mock_model_metadata_conformant_to_imatrix(
         self, 
         mock_estimate_model_precision,
@@ -326,10 +327,10 @@ class TestInitializeBatchAndModelConfig(unittest.TestCase):
         self.assertIsInstance(ubatch_exponent_range, best_bub.ExponentRange)
 
     @patch('llama_cpp.Llama')
-    @patch('best_bub.estimate_max_batch_size', return_value=128)
-    @patch('best_bub.get_available_memory_gb', return_value=2)  # Assume 2 GB available
-    @patch('best_bub.estimate_model_precision', return_value=8)  # Assume 8-bit precision
-    @patch('best_bub.get_model_size_gb', return_value=1)  # Assume 1 GB model size
+    @patch('extras.best_bub.estimate_max_batch_size', return_value=128)
+    @patch('extras.best_bub.get_available_memory_gb', return_value=2)  # Assume 2 GB available
+    @patch('extras.best_bub.estimate_model_precision', return_value=8)  # Assume 8-bit precision
+    @patch('extras.best_bub.get_model_size_gb', return_value=1)  # Assume 1 GB model size
     def test_initialize_batch_conform_to_imatrix_option(
             self,
             mock_get_model_size_gb,
@@ -373,8 +374,8 @@ class TestObjectiveWrapper(unittest.TestCase):
     def tearDown(self):
         logging.disable(logging.NOTSET)
 
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_caching_of_results(self, mock_process, mock_queue):
         # Configure trial mock with proper pruning behavior
         trial = MagicMock()
@@ -431,7 +432,7 @@ class TestObjectiveWrapper(unittest.TestCase):
         trial.report.assert_not_called()
         trial.should_prune.assert_not_called()
 
-    @patch("best_bub.trial_cache", {})
+    @patch("extras.best_bub.trial_cache", {})
     def test_error_handling_for_cached_exceptions(self):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -451,9 +452,9 @@ class TestObjectiveWrapper(unittest.TestCase):
         self.assertEqual(str(context.exception), "Cached error")
         self.assertEqual(best_bub.trial_cache[(1024, 512)]['read_count'], 1)
 
-    @patch('best_bub.time.time')
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch('extras.best_bub.time.time')
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_trial_execution_with_timeout(self, mock_process, mock_queue, mock_time):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -492,8 +493,8 @@ class TestObjectiveWrapper(unittest.TestCase):
         mock_process.return_value.terminate.assert_called_once()
         mock_process.return_value.join.assert_called()
 
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_result_reporting_and_intermediate_pruning(self, mock_process, mock_queue):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -521,8 +522,8 @@ class TestObjectiveWrapper(unittest.TestCase):
         trial.report.assert_called_once_with(100, step=1)
         trial.should_prune.assert_called_once()
 
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_empty_result_handling(self, mock_process, mock_queue):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -544,8 +545,8 @@ class TestObjectiveWrapper(unittest.TestCase):
         with self.assertRaises(optuna.TrialPruned):
             best_bub.objective_wrapper(trial, pre_chunked_text=None, kwargs={}, best_chunk_time=None)
 
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_runtime_error_handling(self, mock_process, mock_queue):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -594,8 +595,8 @@ class TestObjectiveWrapper(unittest.TestCase):
         self.assertEqual(cached_result['result'][0], 'exception')
         self.assertTrue(isinstance(cached_result['result'][1], RuntimeError))
 
-    @patch("best_bub.mp.Queue")
-    @patch("best_bub.mp.Process")
+    @patch("extras.best_bub.mp.Queue")
+    @patch("extras.best_bub.mp.Process")
     def test_unexpected_exception_handling(self, mock_process, mock_queue):
         trial = MagicMock()
         trial.params = {'n_batch': 1024, 'n_ubatch': 512}
@@ -628,9 +629,9 @@ class TestObjective(unittest.TestCase):
     def tearDown(self):
         logging.disable(logging.NOTSET)
 
-    @patch('best_bub.time.time')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.time.time')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective(self, mock_prepare_llama_args, mock_Llama, mock_time):
         # Set up mocks
         mock_prepare_llama_args.return_value = {'n_batch': 1024, 'n_ubatch': 512}
@@ -676,9 +677,9 @@ class TestObjective(unittest.TestCase):
         # Verify that model was called with correct chunks
         mock_model_instance.assert_has_calls([call("chunk1"), call("chunk2")], any_order=False)
 
-    @patch('best_bub.time.time', side_effect=[0, 0.1])
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.time.time', side_effect=[0, 0.1])
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_exceed_best_chunk_time(self, mock_prepare_llama_args, mock_Llama, mock_time):
         # Set up mocks
         mock_prepare_llama_args.return_value = {'n_batch': 1024, 'n_ubatch': 512}
@@ -711,8 +712,8 @@ class TestObjective(unittest.TestCase):
         # Verify that model was called once (since it should exit after exceeding best_chunk_time)
         mock_model_instance.assert_called_once_with("chunk1")
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_exception_handling(self, mock_prepare_llama_args, mock_Llama):
         # Set up mocks
         mock_prepare_llama_args.return_value = {'n_batch': 1024, 'n_ubatch': 512}
@@ -745,8 +746,8 @@ class TestObjective(unittest.TestCase):
         # Verify that model was called once (since exception occurred during first chunk)
         mock_model_instance.assert_called_once_with("chunk1")
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_oom_handling(self, mock_prepare_llama_args, mock_Llama):
         # Set up mocks
         mock_prepare_llama_args.return_value = {'n_batch': 1024, 'n_ubatch': 512}
@@ -779,8 +780,8 @@ class TestObjective(unittest.TestCase):
         # Verify that model was called once
         mock_model_instance.assert_called_once_with("chunk1")
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_model_initialization_failure(self, mock_prepare_llama_args, mock_Llama):
         # Set up mocks
         mock_prepare_llama_args.return_value = {'n_batch': 1024, 'n_ubatch': 512}
@@ -806,8 +807,8 @@ class TestObjective(unittest.TestCase):
         # Verify that model initialization was attempted
         mock_Llama.assert_called_once_with(n_batch=1024, n_ubatch=512)
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_empty_input(self, mock_prepare_llama_args, mock_Llama):
         """Test behavior with empty input text"""
         queue = MagicMock()
@@ -821,8 +822,8 @@ class TestObjective(unittest.TestCase):
         # Check that 'done' with None as time was put in the queue once
         queue.put.assert_called_once_with(("done", None))
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     @patch('builtins.open')
     def test_objective_file_redirection_failure(self, mock_open, mock_prepare_llama_args, mock_Llama):
         """Test handling of file redirection failures"""
@@ -842,8 +843,8 @@ class TestObjective(unittest.TestCase):
         self.assertIsInstance(args[0], IOError)
         self.assertEqual(str(args[0]), "File operation failed")
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
     def test_objective_queue_failure(self, mock_prepare_llama_args, mock_Llama):
         """Test handling of queue.put failures"""
         queue = MagicMock()
@@ -858,9 +859,9 @@ class TestObjective(unittest.TestCase):
 
         self.assertEqual(str(context.exception), "Queue operation failed")
 
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.time.time', side_effect=[0, float('inf')])
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.time.time', side_effect=[0, float('inf')])
     def test_objective_extreme_timing(self, mock_prepare_llama_args, mock_Llama, mock_time):
         """Test handling of extreme timing scenarios"""
         queue = MagicMock()
@@ -1140,8 +1141,8 @@ class TestExecuteTrials(unittest.TestCase):
                     )
                     self.assertEqual(result, study.ask.return_value)
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_trial_better_with_high_confidence(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [90, 95, 92]
@@ -1168,8 +1169,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_trial_better_with_low_confidence(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [99, 101, 100]
@@ -1202,8 +1203,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_trial_worse_than_best(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [110, 115, 112]
@@ -1235,8 +1236,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_empty_trial_chunk_times(self,mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = []
@@ -1269,8 +1270,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_empty_best_chunk_times(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [100, 105, 102]
@@ -1299,8 +1300,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called()  # Adjust based on observed behavior, if required
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_variance_zero_or_negative(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [100, 100, 100]
@@ -1328,8 +1329,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_prior_mean_variance_initialization(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = [100, 105, 102]
@@ -1363,8 +1364,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_prior_mean_variance_not_none(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         best_bub.prior_mean = 100
@@ -1393,8 +1394,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_empty_both_trial_and_best_chunk_times(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         trial_chunk_times = []
@@ -1425,8 +1426,8 @@ class TestExecuteTrials(unittest.TestCase):
         mock_update_bayesian.assert_called_once()
         mock_calculate_prob.assert_called_once()
 
-    @patch('best_bub.update_bayesian_mean_variance')
-    @patch('best_bub.calculate_probability_of_superiority')
+    @patch('extras.best_bub.update_bayesian_mean_variance')
+    @patch('extras.best_bub.calculate_probability_of_superiority')
     def test_update_best_chunk_time_with_probability_prior_mean_variance_not_none_initialization(self, mock_calculate_prob, mock_update_bayesian):
         # Given
         best_bub.prior_mean = 100
@@ -1574,10 +1575,10 @@ class TestExecuteTrials(unittest.TestCase):
         # Probability should be close to 0.5 for nearly equal means
         self.assertAlmostEqual(prob_superiority, 0.5, delta=0.05, msg="Probability should be close to 0.5.")
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_execute_trials_normal_execution(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1610,10 +1611,10 @@ class TestExecuteTrials(unittest.TestCase):
         # Verify that trials are told with correct values
         mock_study.tell.assert_called_with(mock_trial, 200)  # Average of [100, 200, 300]
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_execute_trials_with_pruned_trial(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1647,10 +1648,10 @@ class TestExecuteTrials(unittest.TestCase):
         mock_logger.warning.assert_called_with(f"Trial {mock_trial.number} was pruned")
         mock_study.tell.assert_called_with(mock_trial, float('inf'))
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_execute_trials_with_exception(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1684,10 +1685,10 @@ class TestExecuteTrials(unittest.TestCase):
         mock_logger.warning.assert_called_with(f"Trial {mock_trial.number} failed with exception: Some error")
         mock_study.tell.assert_called_with(mock_trial, state=optuna.trial.TrialState.FAIL)
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_max_attempts_reached(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1716,10 +1717,10 @@ class TestExecuteTrials(unittest.TestCase):
         # Verify that the warning about pruning was logged
         mock_logger.warning.assert_any_call(f"Trial {mock_trial.number} was pruned")
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_initial_default_trial(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1746,10 +1747,10 @@ class TestExecuteTrials(unittest.TestCase):
             default_n_ubatch=2 ** best_bub.DEFAULT_UBATCH_EXPONENT
         )
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_execute_trials_with_oom_error(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1777,10 +1778,10 @@ class TestExecuteTrials(unittest.TestCase):
         mock_logger.warning.assert_called_with(f"Trial {mock_trial.number} pruned due to OOM error: CUDA out of memory")
         mock_study.tell.assert_called_with(mock_trial, np.inf)
 
-    @patch('best_bub.create_trial')
-    @patch('best_bub.objective_wrapper')
-    @patch('best_bub.update_best_chunk_time_with_probability')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.create_trial')
+    @patch('extras.best_bub.objective_wrapper')
+    @patch('extras.best_bub.update_best_chunk_time_with_probability')
+    @patch('extras.best_bub.logger')
     def test_best_chunk_times_initialization(
         self, mock_logger, mock_update_best, mock_objective_wrapper, mock_create_trial
     ):
@@ -1865,8 +1866,8 @@ class TestMainExecution(unittest.TestCase):
             f"Token count ({actual_token_count}) exceeds the acceptable limit ({int(max_total_tokens)})"
         )        
 
-    @patch("best_bub.generate_random_tokens")
-    @patch("best_bub.llama_cpp.Llama", new=MockModel)
+    @patch("extras.best_bub.generate_random_tokens")
+    @patch("extras.best_bub.llama_cpp.Llama", new=MockModel)
     def test_tokenize_returns_integer_list(self, mock_generate_random_tokens):
         # Mock the output of generate_random_tokens
         mock_generate_random_tokens.return_value = "test text"
@@ -1920,9 +1921,9 @@ class TestMainExecution(unittest.TestCase):
     def test_report_results(self):
         self.assertTrue(callable(best_bub.report_results))
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_happy_path(
         self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial
     ):
@@ -1944,7 +1945,6 @@ class TestMainExecution(unittest.TestCase):
         mock_objective_wrapper.return_value = [50, 45, 47, 48]
         mock_update_best_chunk_time.return_value = ([50, 45, 47, 48], 1024, 512)
 
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Assertions
@@ -1956,9 +1956,9 @@ class TestMainExecution(unittest.TestCase):
         avg_best_time = sum(mock_objective_wrapper.return_value) / len(mock_objective_wrapper.return_value) * 2.5
         mock_objective_wrapper.assert_called_with(mock_trial, pre_chunked_text, kwargs, avg_best_time)
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_all_trials_complete(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         study = MagicMock(spec=optuna.Study)
         n_trials = 5
@@ -1974,16 +1974,15 @@ class TestMainExecution(unittest.TestCase):
         mock_objective_wrapper.return_value = [50, 45, 47, 48]
         mock_update_best_chunk_time.return_value = ([50, 45, 47, 48], 1024, 512)
 
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Ensure n_trials were completed
         self.assertEqual(mock_create_trial.call_count, n_trials)
         self.assertEqual(mock_objective_wrapper.call_count, n_trials)
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_max_attempts(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         # Set up the mock study and params
         study = MagicMock(spec=optuna.Study)
@@ -1999,15 +1998,14 @@ class TestMainExecution(unittest.TestCase):
         mock_create_trial.return_value = mock_trial
         mock_objective_wrapper.side_effect = optuna.TrialPruned()  # Simulate pruning on each trial
 
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Verify max_attempts has prevented completion of n_trials
         self.assertTrue(mock_create_trial.call_count < n_trials * 10)
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_update_best_trial(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         # Setup the initial conditions for the test
         study = MagicMock(spec=optuna.Study)
@@ -2054,7 +2052,6 @@ class TestMainExecution(unittest.TestCase):
         mock_update_best_chunk_time.side_effect = update_side_effect
 
         # Run the function under test
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Verify that update_best_chunk_time_with_probability was called with expected arguments
@@ -2079,9 +2076,9 @@ class TestMainExecution(unittest.TestCase):
         last_call = mock_update_best_chunk_time.call_args_list[-1]
         self.assertEqual(last_call[0], (second_chunk_times, second_n_batch, second_n_ubatch, first_chunk_times, first_n_batch, first_n_ubatch))
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_excludes_default_exponents_outside_range(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         # Setup the initial conditions for the test
         study = MagicMock(spec=optuna.Study)
@@ -2120,9 +2117,9 @@ class TestMainExecution(unittest.TestCase):
         # Verify that the mock for create_trial was called exactly once
         self.assertEqual(mock_create_trial.call_count, 1)
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_excludes_default_exponents_outside_range(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         # Setup the initial conditions for the test
         study = MagicMock(spec=optuna.Study)
@@ -2150,7 +2147,6 @@ class TestMainExecution(unittest.TestCase):
         mock_objective_wrapper.return_value = [55, 50, 53, 54]  # Example chunk times
 
         # Run the function under test
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Assert that create_trial was called without default_n_batch and default_n_ubatch
@@ -2161,9 +2157,9 @@ class TestMainExecution(unittest.TestCase):
         # Verify that the mock for create_trial was called exactly once
         self.assertEqual(mock_create_trial.call_count, 1)
 
-    @patch("best_bub.create_trial")
-    @patch("best_bub.objective_wrapper")
-    @patch("best_bub.update_best_chunk_time_with_probability")
+    @patch("extras.best_bub.create_trial")
+    @patch("extras.best_bub.objective_wrapper")
+    @patch("extras.best_bub.update_best_chunk_time_with_probability")
     def test_execute_trials_pruned_due_to_oom(self, mock_update_best_chunk_time, mock_objective_wrapper, mock_create_trial):
         study = MagicMock(spec=optuna.Study)
         n_trials = 5
@@ -2178,23 +2174,22 @@ class TestMainExecution(unittest.TestCase):
         mock_create_trial.return_value = mock_trial
         mock_objective_wrapper.side_effect = RuntimeError("CUDA out of memory")  # Simulate OOM
 
-        from best_bub import execute_trials
         execute_trials(study, n_trials, pre_chunked_text, kwargs, batch_exponent_range, ubatch_exponent_range)
 
         # Confirm objective_wrapper was retried and eventually pruned each trial due to OOM
         self.assertEqual(mock_create_trial.call_count, n_trials)
         self.assertEqual(mock_objective_wrapper.call_count, n_trials)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_with_max_trials_and_chunks(
         self,
         mock_logger,
@@ -2278,16 +2273,16 @@ class TestMainExecution(unittest.TestCase):
         unwanted_call = call(f"Auto-estimated chunks: 10 for batch size {2 ** mock_batch_range.max} and context size {kwargs['context_size']}")
         self.assertNotIn(unwanted_call, mock_logger.info.call_args_list)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_without_max_trials_and_with_conform_to_imatrix(
         self,
         mock_logger,
@@ -2382,16 +2377,16 @@ class TestMainExecution(unittest.TestCase):
         # Ensure debug logs were emitted if logging level is DEBUG
         mock_logger.isEnabledFor.assert_called_with(logging.DEBUG)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_with_debug_logging(
         self,
         mock_logger,
@@ -2500,16 +2495,16 @@ class TestMainExecution(unittest.TestCase):
         auto_estimated_call = call(f"Auto-estimated chunks: {expected_chunks} for batch size {max_batch_size} and context size {kwargs_initial['context_size']}")
         self.assertIn(auto_estimated_call, mock_logger.info.call_args_list)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_without_chunks_conform_false(
         self,
         mock_logger,
@@ -2613,16 +2608,16 @@ class TestMainExecution(unittest.TestCase):
         )
         mock_report_results.assert_called_once_with(mock_study)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_with_chunks_provided(
         self,
         mock_logger,
@@ -2715,16 +2710,16 @@ class TestMainExecution(unittest.TestCase):
         }
         self.assertEqual(self.captured_kwargs, expected_kwargs)
 
-    @patch('best_bub.report_results')
-    @patch('best_bub.execute_trials')
-    @patch('best_bub.chunk_text')
-    @patch('best_bub.tokenize')
-    @patch('best_bub.llama_cpp.Llama')
-    @patch('best_bub.prepare_llama_args')
-    @patch('best_bub.estimate_number_of_trials')
-    @patch('best_bub.initialize_batch_and_model_config')
-    @patch('best_bub.setup_study')
-    @patch('best_bub.logger')
+    @patch('extras.best_bub.report_results')
+    @patch('extras.best_bub.execute_trials')
+    @patch('extras.best_bub.chunk_text')
+    @patch('extras.best_bub.tokenize')
+    @patch('extras.best_bub.llama_cpp.Llama')
+    @patch('extras.best_bub.prepare_llama_args')
+    @patch('extras.best_bub.estimate_number_of_trials')
+    @patch('extras.best_bub.initialize_batch_and_model_config')
+    @patch('extras.best_bub.setup_study')
+    @patch('extras.best_bub.logger')
     def test_main_with_debug_logging_enabled(
         self,
         mock_logger,

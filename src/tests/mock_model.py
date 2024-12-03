@@ -12,6 +12,7 @@ class MockModel:
         self.n_tokens = 0
         self._vocab_size = 1000  
         self.n_ctx = 128
+        self.ctx = np.array([])
         self.scores = np.array([])
         # Handle any kwargs that may affect the model, if necessary
 
@@ -24,8 +25,8 @@ class MockModel:
 
     def token_eos(self):
         return 2  # EOS token ID
-
-    def __call__(self, tokens):
+    
+    def __call__(self, tokens, **kwargs):
         # Simulate model inference
         self.n_tokens = len(tokens)
 

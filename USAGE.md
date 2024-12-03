@@ -4,22 +4,31 @@ This guide outlines a systematic approach for quantizing your models using itera
 
 ---
 
-#### **Preparing Your Dataset for I-Matrix Generation**
+### **Preparing Your Dataset for I-Matrix Generation**
 
-Before quantizing your model, you need a dataset to generate the i-matrix and evaluate the quantized models. The `imatrix_dataset.py` tool helps collect and preprocess this data. However, due to the way the datasets library works, it's best to download a larger dataset upfront and then split it. This avoids the overhead of repeatedly accessing the dataset library, which can be inefficient. The tool allows skipping so more can be added later as needed, so it may be comfortable if appropriate to save the first part of the dataset downloaded for testing, leaving the later part for the imatrix itself. 
+Before quantizing your model, you need a dataset to generate the I-matrix and evaluate the quantized models. The `imatrix_dataset.py` tool helps collect and preprocess this data. Thanks to the efficient caching mechanism of the datasets library, you can start with a smaller dataset for initial testing and gradually expand it as needed for I-matrix generation and model evaluation. The tool's skip functionality allows you to add more data later, providing flexibility in your workflow. This approach leverages the local caching of the datasets library, ensuring efficient data access without the need for large upfront downloads.
 
-To optimize the process:
+The section you've provided needs significant revision to align with the actual behavior of the datasets library and the functionality of the imatrix_dataset.py tool. Here's a suggested update that reflects a more efficient and flexible approach:
 
-1. **Estimate the largest i-matrix dataset size you'll need.**
-2. **Add the size of your test dataset to this estimate.**
-3. **Download a dataset that meets this combined size.**
-4. **Split the downloaded dataset into two parts:**
-    - The earlier portion for quantization testing.
-    - The later portion as the pool for creating and expanding the i-matrix dataset.
+#### Optimizing Dataset Collection for I-matrix Generation
 
-This approach ensures you have all the necessary data while minimizing redundant downloads and improving overall efficiency.
+To optimize the process of collecting data for I-matrix generation and model evaluation:
 
-- **Generate the Dataset using `imatrix_dataset.py`**
+1. **Start Small**: Begin with a smaller dataset for initial testing. The imatrix_dataset.py tool allows you to specify the number of samples to collect using the `--num-samples` argument[1].
+
+2. **Incremental Expansion**: As you need more data, you can incrementally expand your dataset. The tool supports skipping samples with the `--skip-samples` argument, allowing you to add new data without duplicating existing samples[1].
+
+3. **Efficient Caching**: The datasets library automatically caches downloaded data locally. This means subsequent accesses to the same dataset will be much faster and won't require re-downloading[1].
+
+4. **Flexible Data Management**: The tool writes individual language samples to separate JSON files (e.g., `raw_transactions_{lang}.json`). It also creates a combined dataset file, which can be shuffled and chunked if desired[1].
+
+5. **Automated Sample Counting**: Use the `--count-only` flag to check how many samples you already have without downloading more data[1].
+
+6. **Smart Overwrite Control**: The `--overwrite` flag allows you to control whether existing data should be replaced or appended to[1].
+
+This approach leverages the built-in efficiencies of the datasets library and the flexibility of the imatrix_dataset.py tool. It allows you to start small, expand as needed, and maintain an efficient workflow without unnecessary downloads or data redundancy.
+
+#### Generate the Dataset using `imatrix_dataset.py`
 
   The `imatrix_dataset.py` script allows you to create a dataset tailored to your needs. It supports various data sources through a flexible plugin system (details on the plugin system are provided later in this guide).
 
@@ -32,7 +41,7 @@ This approach ensures you have all the necessary data while minimizing redundant
       --datasource_plugin src/imatrix_dataset/hf_dataset.py \
       --plugin_class HFDatasetPlugin \
       --langs en \
-      --num_samples 100000 \
+      --num_samples 10000 \
       --output /path/to/dataset.txt
   ```
 
@@ -42,9 +51,40 @@ This approach ensures you have all the necessary data while minimizing redundant
   - The `--num_samples` parameter specifies the number of samples to use.
   - The `--output` parameter specifies the path where the generated dataset will be saved.
 
+#### **Generating Multiple Quantizations with `quantize.py`**
+
+After preparing your dataset and generating the I-matrix, you may want to create multiple quantized versions of your model simultaneously. The `quantize.py` script facilitates this by allowing you to specify multiple quantization types in a single command, ensuring consistency across all quantized models.
+
+##### **Benefits of Generating Multiple Quantizations at Once:**
+
+- **Consistency:** Ensures that all quantizations are created using the same settings and parameters.
+- **Efficiency:** Saves time by processing multiple quantizations in a single run rather than executing separate commands for each.
+- **Organization:** Centralizes the quantization process, making it easier to manage and track different quantized versions.
+
+##### **Using `quantize.py` to Generate Multiple Quantizations:**
+
+You can specify multiple quantization types using a comma-separated list in the `--quantizations` parameter. The script will process each specified quantization sequentially, saving each quantized model to the designated output directory.
+
+**Example Command:**
+
+```sh
+❯ uv run src/quantize.py quantize \
+    --model-name my_model \
+    --base-model /path/to/baseline_model.gguf \
+    --quantizations Q4_0,Q6_K,Q8 \
+    --imatrix-path /path/to/imatrix.bin \
+    --output-dir /path/to/output_dir
+```
+
+- `--model-name`: A base name for your quantized models. The script will append the quantization type to this name for each output model (e.g., `my_model-Q4_0.gguf`).
+- `--base-model`: Path to your unquantized (baseline) model in GGUF format.
+- `--quantizations`: A comma-separated list of quantization types you wish to generate (e.g., `q4_0,q4_1,q5_0`).
+- `--imatrix-path`: Path to the I-matrix file generated in the previous step.
+- `--output-dir`: Directory where the quantized models will be saved.
+
 ---
 
-#### **Step 1: Generate and Store Baseline Logits (One-Time Setup)**
+### **Step 1: Generate and Store Baseline Logits (One-Time Setup)**
 
 - **Run `generate_logits.py` on the Baseline Model**
 
@@ -75,7 +115,7 @@ This approach ensures you have all the necessary data while minimizing redundant
 
 ---
 
-#### **Step 2: Initial Quantization (Without I-Matrix) and Baseline Comparison**
+### **Step 2: Initial Quantization (Without I-Matrix) and Baseline Comparison**
 
 - **Quantize the Model without an I-Matrix using `quantize.py`**
 
@@ -113,13 +153,26 @@ This approach ensures you have all the necessary data while minimizing redundant
   - Replace `/path/to/output_dir/my_model-q4_0.gguf` with the path to your quantized model.
   - The `--output-file` parameter specifies where to save the comparison results.
 
+  The `--early-stopping` flag enables the early stopping mechanism, allowing the script to terminate the comparison process once sufficient statistical evidence is gathered. In subsequent tests, conforming all future tests to the number of chunks found with `--to-chunk` can greatly reduce the amount of data written to disk.
+
+  **Example command with Early Stopping:**
+
+  ```sh
+  ❯ uv run src/kl_d_bench.py \
+      --baseline-logits baseline_logits.hdf5 \
+      --target-model /path/to/output_dir/my_model-q4_0.gguf \
+      --dataset /path/to/dataset.txt \
+      --output-file initial_comparison.hdf5 \
+      --early-stopping
+  ```
+
 - **Collect and Evaluate Metrics**
 
   After running `kl_d_bench.py`, review the KL-divergence metrics, including the median and the 90th, 95th, and 99th percentiles for each data chunk. This initial assessment serves as a reference point for evaluating improvements from I-matrix calibration in subsequent iterations.
 
 ---
 
-#### **Step 3: Iterative I-Matrix Calibration and Quantization**
+### **Step 3: Iterative I-Matrix Calibration and Quantization**
 
 - **Generate I-Matrices with Incrementally Larger Dataset Subsets**
 
@@ -160,7 +213,7 @@ This approach ensures you have all the necessary data while minimizing redundant
 
 - **Use `kl_d_bench.py` for Comparison**
 
-  For each quantized model with an updated I-matrix:
+  For each quantized model with an updated I-matrix, use `kl_d_bench.py` to compare against the baseline logits. Utilize the `--to-chunk` flag to potentially reduce computation time by halting the comparison at the point previously found with `--early-stopping`.
 
   - **Run the Comparison Script**
 
@@ -169,22 +222,23 @@ This approach ensures you have all the necessary data while minimizing redundant
         --baseline-logits baseline_logits.hdf5 \
         --target-model /path/to/output_dir/my_model-q4_0.gguf \
         --dataset /path/to/dataset.txt \
-        --output-file comparison_iteration_n.hdf5
+        --output-file comparison_iteration_1.hdf5 \
+        --to-chunk 42
     ```
 
-    - Update `comparison_iteration_n.hdf5` to reflect the iteration number (e.g., `comparison_iteration_1.hdf5`).
+    - Update `comparison_iteration_1.hdf5` to reflect the iteration number (e.g., `comparison_iteration_2.hdf5`).
 
   - **Analyze KL-Divergence Metrics**
 
     Focus on key metrics, especially the high-percentile KL-divergence values, to assess the effectiveness of the quantization with each updated I-matrix.
 
-- **Evaluate Metrics to Determine When to Stop**
+- **Evaluate Metrics to Determine When to Stop Adding Data**
 
   Monitor the KL-divergence metrics across iterations. Pay special attention to the 90th, 95th, and 99th percentiles. When successive iterations show marginal improvements (diminishing returns), you can consider the I-matrix sufficiently refined for your application.
 
 ---
 
-#### **Metric for Evaluation**
+### **Metric for Evaluation**
 
 To balance overall performance with outlier minimization, we suggest using a composite metric that combines the median KL-divergence and higher percentile values.
 
@@ -205,7 +259,7 @@ By minimizing this composite score, you ensure that the quantized model maintain
 
 ---
 
-#### **Additional Guidance on Dataset Size**
+### **Additional Guidance on Dataset Size**
 
 Selecting an appropriate dataset size and coverage is crucial for effective I-matrix calibration. We recommend:
 
@@ -217,20 +271,7 @@ For detailed insights into dataset selection and initial sizing, refer to [on_qu
 
 ---
 
-#### **Additional Tools and Options**
-
-- **Optimizing Batch Sizes with `best_bub.py`**
-
-  Before generating logits or quantizing large models, you may want to optimize batch (`--batch`) and micro-batch (`--ubatch`) sizes to maximize performance given your hardware constraints.
-
-  **Example command:**
-
-  ```sh
-  ❯ uv run src/best_bub.py --model /path/to/baseline_model.gguf --context-size 2048
-  ```
-
-  - Adjust the `--context-size` to match your model's maximum context size.
-  - This script will suggest optimal `--batch-size` and `--ubatch-size` settings.
+### **Additional Tools and Options**
 
 - **Measuring Perplexity with `quantize.py`**
 
@@ -247,9 +288,88 @@ For detailed insights into dataset selection and initial sizing, refer to [on_qu
 
   - Replace `/path/to/perplexity_dataset.txt` with a dataset suitable for perplexity measurement.
 
+In addition to the core scripts, the `src/extras/` folder contains supplementary tools that enhance your workflows. These scripts provide functionalities for optimization, visualization, data extraction, and file maintenance.
+
+- **Optimizing Batch Sizes with `best_bub.py`**
+
+  Before generating logits or quantizing large models, you may want to optimize batch (`--batch`) and micro-batch (`--ubatch`) sizes to maximize performance given your hardware constraints.
+
+  **Example command:**
+
+  ```sh
+  ❯ uv run src/extras/best_bub.py --model /path/to/baseline_model.gguf --context-size 2048
+  ```
+
+  - Adjust the `--context-size` to match your model's maximum context size.
+  - This script will suggest optimal `--batch-size` and `--ubatch-size` settings.
+
+#### **1. Visualization and Data Extraction**
+
+These scripts help analyze and visualize data generated during quantization, logit generation, and KL-divergence comparisons. They are useful for evaluating model performance, exploring patterns, and generating insights.
+
+- **`analyze_comparison_progress_from_logs.py`:**  
+   Visualizes early stopping factors and tracks progress during `compare_logits.py` runs. Projects remaining runtime and statistical trends. Outputs live updates or exports raw data for later analysis.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/analyze_comparison_progress_from_logs.py --logfile <log_file_path>
+   ```
+
+- **`composite_comparison.py`:**  
+   Evaluates multiple comparisons using a composite metric. Provides overall KL-divergence curves, chunk-by-chunk scores, and 3D performance manifolds to identify quantization trends.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/composite_comparison.py --input-files <file1> <file2> --output <summary_file>
+   ```
+
+- **`visualize_results.py`:**  
+   Creates detailed visualizations of KL-divergence outputs, including chunk-by-chunk graphs and 3D manifolds. Helps identify patterns or anomalies in quantization results.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/visualize_results.py --input <comparison_file> --output <graph_file>
+   ```
+
+- **`read_kl_d_benchmarks.py`:**  
+   Extracts and displays KL-divergence statistics from comparison HDF5 files. Filters metrics by chunk range or includes overall statistics for a concise summary.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/read_kl_d_benchmarks.py --input <comparison_file> --start-chunk 0 --end-chunk 10
+   ```
+
+#### **2. HDF5 Repair/Repurposing**
+
+These scripts are designed to repair, repurpose, or modify HDF5 files used during logit generation or KL-divergence comparisons. They ensure data integrity and enable reuse in interrupted or experimental workflows.
+
+- **`append_overall.py`:**  
+   Computes and appends "overall" KL-divergence metrics to a comparison file, particularly for interrupted runs. Ensures a complete summary of results.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/append_overall.py --input <comparison_file> --output <updated_file>
+   ```
+
+- **`reshape_logits.py`:**  
+   Reshapes large logit files into smaller, evenly divided chunks, useful for exploring settings across multiple smaller chunks.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/reshape_logits.py --input <logits_file> --output <reshaped_file> --chunk-size <size>
+   ```
+
+- **`unfree.py`:**  
+   Resets the `freed_chunks` dataset in HDF5 logit files. This is helpful for resuming interrupted logit generation processes without losing progress.
+
+   **Example Command:**
+   ```sh
+   ❯ uv run src/extras/unfree.py --input <hdf5_file>
+   ```
+
 ---
 
-#### **Using the Plugin System in `imatrix_dataset.py`**
+### **Using the Plugin System in `imatrix_dataset.py`**
 
 As mentioned earlier, the `imatrix_dataset.py` script uses a plugin system to support various data sources flexibly. Here's how you can utilize this system:
 
@@ -355,6 +475,12 @@ As mentioned earlier, the `imatrix_dataset.py` script uses a plugin system to su
   ```
 
   - This command generates a dataset using 50,000 samples from each of the specified languages.
+
+---
+
+### **Understanding the `--early-stopping` Argument**
+
+With the introduction of the `--early-stopping` flag in both `compare_logits.py` and `kl_d_bench.py`, you can optimize the comparison process by allowing the script to terminate early once sufficient statistical evidence is gathered. This feature leverages statistical tests to determine when additional data processing is unlikely to yield significant new insights, thereby saving computational resources and time. See the [compare_logits specification](compare_logits_specification.md) file.
 
 ---
 
