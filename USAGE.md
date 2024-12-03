@@ -308,6 +308,12 @@ In addition to the core scripts, the `src/extras/` folder contains supplementary
 These scripts help analyze and visualize data generated during quantization, logit generation, and KL-divergence comparisons. They are useful for evaluating model performance, exploring patterns, and generating insights.
 
 - **`analyze_comparison_progress_from_logs.py`:**  
+
+  |  |  |
+  |--|--|
+  | ![3d KL-divergence manifold across files](assets/3D%20KL-Divergence%20manifold%20across%20files.png) | ![composite metrics by chunk](assets/Composite%20Metrics%20by%20Chunk.png) |
+  
+
    Visualizes early stopping factors and tracks progress during `compare_logits.py` runs. Projects remaining runtime and statistical trends. Outputs live updates or exports raw data for later analysis.
 
    **Example Command:**
