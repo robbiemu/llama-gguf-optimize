@@ -272,7 +272,10 @@ def main(args):
     # Dynamically load the specified plugin
     try:
         PluginClass = load_plugin_from_file(args.datasource_plugin, args.plugin_class)
-        plugin = PluginClass()
+        if args.url is not None:
+            plugin = PluginClass(args.url)
+        else:
+            plugin = PluginClass()
     except Exception as e:
         logging.error(f"Failed to load plugin: {e}")
         return
@@ -339,6 +342,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--output", type=str, default="combined_dataset.json", help="Output file path (default; combined_dataset.json)")
     parser.add_argument("--datasource-plugin", type=str, required=True, help="Path to the data source plugin file.")
+    parser.add_argument("--url", type=str, help="Optional source url to pass to the plugin for downloading the datasource (typically a hf dataset name that can be copied from its page)")
     parser.add_argument("--plugin-class", type=str, default="DataSourcePlugin", help="Class name of the data source plugin.")
     parser.add_argument("--num-samples", type=int, default=200, help="Number of samples to load.")
     parser.add_argument("--skip-samples", type=int, default=0, help="Number of samples to skip.")
