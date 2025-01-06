@@ -79,7 +79,7 @@ You can specify multiple quantization types using a comma-separated list in the 
 - `--model-name`: A base name for your quantized models. The script will append the quantization type to this name for each output model (e.g., `my_model-Q4_0.gguf`).
 - `--base-model`: Path to your unquantized (baseline) model in GGUF format.
 - `--quantizations`: A comma-separated list of quantization types you wish to generate (e.g., `q4_0,q4_1,q5_0`).
-- `--imatrix-path`: Path to the I-matrix file generated in the previous step.
+- `--imatrix-path`: Path to the I-matrix file if you've previously generated.
 - `--output-dir`: Directory where the quantized models will be saved.
 
 ---
