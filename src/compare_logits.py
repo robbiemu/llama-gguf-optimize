@@ -1306,8 +1306,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Calculate KL-divergence between two logits HDF5 files. Supports early-stopping for initial run to avoid unnecessary testing.")
     
-    parser.add_argument('baseline-file', type=str, help="Path to the baseline logits HDF5 file.")
-    parser.add_argument('target-file', type=str, help="Path to the target logits HDF5 file.")
+    parser.add_argument('baseline_file', type=str, help="Path to the baseline logits HDF5 file.")
+    parser.add_argument('target_file', type=str, help="Path to the target logits HDF5 file.")
     parser.add_argument('--output-file', type=str, help="Optional path to save KL-divergence statistics.")
     parser.add_argument('--from-chunk', type=int, help="Starting chunk index for processing (inclusive).")
     parser.add_argument('--to-chunk', type=int, help="Ending chunk index for processing (inclusive).")
@@ -1361,6 +1361,7 @@ Statistical tools for early stopping include the Kuiper test, which performs a b
 """
 
     args = parser.parse_args()
+    setattr(args, "dynamic_thresholds", False)
 
     setup_logging(getattr(logging, args.verbosity.upper(), logging.INFO))
     logger.info(f"compare_logits (version {__version__})")
@@ -1368,7 +1369,7 @@ Statistical tools for early stopping include the Kuiper test, which performs a b
     min_tokens = None
 
     if args.early_stopping:
-        setattr(args, "dynamic_thresholds_enabled", args.theta_E is None and args.theta_P is None)
+        setattr(args, "dynamic_thresholds", args.theta_E is None and args.theta_P is None)
 
         # Set defaults only for arguments that are None
         for arg, default in EARLY_STOPPING_DEFAULTS.items():
@@ -1399,7 +1400,7 @@ Statistical tools for early stopping include the Kuiper test, which performs a b
     else:
         # Warn about ignored arguments only if explicitly set
         ignored_args = [
-            f"--{arg.replace('_', '-')}" for arg in EARLY_STOPPING_DEFAULTS.values()
+            f"--{arg.replace('_', '-')}" for arg in EARLY_STOPPING_DEFAULTS.keys()
             if getattr(args, arg) is not None
         ]
         if ignored_args:
